@@ -158,6 +158,14 @@
   <button id="btnRetry">Noch einmal versuchen</button>
 </div>
 
+<div id="win" class="overlay" style="display:none; background:linear-gradient(180deg,#0e3a55,#0a1622)">
+  <h1>GERETTET!</h1>
+  <div class="sub" id="winSub">Entkommen</div>
+  <p>Du stichst in See. Nach zwei Tagen auf offenem Wasser entdeckt dich ein Frachter.
+     Du hast überlebt — und die Insel hat dich für immer verändert.</p>
+  <button id="btnWinNew">Neues Abenteuer</button>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 "use strict";
@@ -191,6 +199,8 @@ const ITEMS = {
   messer:  { nm:"Messer",     em:"🔪" },
   flasche: { nm:"Flasche",    em:"🍼" },
   speer:   { nm:"Speer",      em:"🔱" },
+  axt:     { nm:"Axt",        em:"🪓" },
+  segel:   { nm:"Segeltuch",  em:"⛵" },
 };
 
 const RECIPES = [
@@ -198,6 +208,8 @@ const RECIPES = [
     desc:"Braten & nachts schlafen" },
   { id:"speer",   nm:"Speer",        em:"🔱", cost:{holz:2, faser:2}, unique:true,
     desc:"Erlaubt Fischen am Meer" },
+  { id:"axt",     nm:"Axt",          em:"🪓", cost:{holz:3, stein:2, faser:1}, unique:true,
+    desc:"Schneller & mehr Holz" },
   { id:"schutz",  nm:"Unterschlupf", em:"⛺", cost:{holz:8, faser:6}, place:true,
     desc:"Sicherer Schlafplatz" },
 ];
@@ -212,6 +224,7 @@ function freshState(){
     px: 6, pz: 30,
     inv: {},
     bottle: 0,
+    raft: 0,                   // 0 Wrack · 1 Rumpf · 2 Mast & Segel · 3 startklar
     found: {},                 // einmalige Strandgut-Funde
     fires: [], shelters: [],
     nextDrift: 60,             // Sekunden bis zum nächsten Strandgut
@@ -572,11 +585,57 @@ const hiRing = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.72, 22),
 hiRing.rotation.x = -Math.PI/2; hiRing.visible = false;
 scene.add(hiRing);
 
+// ---------- Floß-Bauplatz (Südstrand) ----------
+const RAFT = { x: 8, z: 37 };
+const raftG = new THREE.Group();
+raftG.position.set(RAFT.x, terrainH(RAFT.x, RAFT.z), RAFT.z);
+scene.add(raftG);
+function updateRaftMesh(){
+  while (raftG.children.length) raftG.remove(raftG.children[0]);
+  const stage = S ? (S.raft || 0) : 0;
+  if (stage === 0){
+    // Wrackteile
+    for (let i = 0; i < 4; i++){
+      const p = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.1, 1.6 + Math.random()), mat(0x6e5436));
+      p.position.set((Math.random()-0.5)*1.8, 0.1, (Math.random()-0.5)*1.8);
+      p.rotation.set((Math.random()-0.5)*0.5, Math.random()*Math.PI, (Math.random()-0.5)*0.4);
+      raftG.add(p);
+    }
+  } else {
+    // Plattform
+    for (let i = 0; i < 5; i++){
+      const p = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.14, 3.0), mat(0xa07a4a));
+      p.position.set(i*0.5 - 1.0, 0.3, 0);
+      raftG.add(p);
+    }
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.1, 0.3), mat(0x8a6438));
+    beam.position.set(0, 0.42, -1.1); raftG.add(beam);
+    const beam2 = beam.clone(); beam2.position.z = 1.1; raftG.add(beam2);
+  }
+  if (stage >= 2){
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 2.8, 6), mat(0x8a5a33));
+    mast.position.set(0, 1.75, 0); raftG.add(mast);
+    const sail = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 1.9), 
+      new THREE.MeshLambertMaterial({ color:0xf2ead2, side:THREE.DoubleSide }));
+    sail.position.set(0.0, 1.9, 0.12); sail.rotation.y = 0.25;
+    raftG.add(sail);
+  }
+  if (stage >= 3){
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.55, 8), mat(0x7a4f2a));
+    barrel.position.set(-0.7, 0.62, 0.9); raftG.add(barrel);
+    const crate = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.45, 0.55), mat(0xb08d57));
+    crate.position.set(0.7, 0.58, 0.9); raftG.add(crate);
+  }
+  shadowify(raftG);
+}
+updateRaftMesh();
+
 function spawnDrift(){
   const s = randSpot(0.85, 1.2); if (!s) return;
   const pool = [];
   if (!S.found.messer)  pool.push("messer");
   if (!S.found.flasche) pool.push("flasche");
+  if (!S.found.segel && (S.raft||0) >= 1) pool.push("segel", "segel"); // doppelt gewichtet
   pool.push("konserve", "seil", "planke");
   const item = pool[Math.floor(Math.random()*pool.length)];
   const o = mkDrift();
@@ -674,6 +733,7 @@ function craft(r){
   if (!canAfford(r.cost)) return;
   for (const k in r.cost) take(k, r.cost[k]);
   if (r.id === "speer"){ give("speer"); toast("🔱 Speer hergestellt! Fische am Meeresufer."); }
+  else if (r.id === "axt"){ give("axt"); toast("🪓 Axt hergestellt! Holzfällen geht jetzt deutlich schneller."); }
   else if (r.id === "feuer"){
     const f = shadowify(mkFire());
     placeOnTerrain(f, player.position.x + 1.4, player.position.z + 1.0);
@@ -744,6 +804,41 @@ function computeActions(){
   const acts = [];
   const speedy = has("messer") ? 0.55 : 1;
 
+  // Floß / Flucht — höchste Priorität am Bauplatz
+  const dr = Math.hypot(player.position.x - RAFT.x, player.position.z - RAFT.z);
+  if (dr < 4.5 && !gather){
+    const st = S.raft || 0;
+    if (st === 0) acts.push({ at:raftG.position, label:"🛶 Rumpf bauen", run(){
+      if (!canAfford({holz:12, faser:6})){ toast("Benötigt: 🪵 12 · 🌾 6"); return; }
+      startGather("Rumpf bauen …", 3.5, () => {
+        take("holz",12); take("faser",6); S.raft = 1; updateRaftMesh();
+        toast("🛶 Der Rumpf steht! Halte Ausschau nach angespültem Segeltuch."); saveGame();
+      });
+    }});
+    else if (st === 1) acts.push({ at:raftG.position, label:"⛵ Mast & Segel", run(){
+      if (!canAfford({holz:8, faser:8, segel:1})){ toast("Benötigt: 🪵 8 · 🌾 8 · ⛵ 1 Segeltuch"); return; }
+      startGather("Mast errichten …", 3.5, () => {
+        take("holz",8); take("faser",8); take("segel",1); S.raft = 2; updateRaftMesh();
+        toast("⛵ Das Segel ist gesetzt! Jetzt fehlt nur noch Proviant."); saveGame();
+      });
+    }});
+    else if (st === 2) acts.push({ at:raftG.position, label:"🧺 Proviant verstauen", run(){
+      const cooked = (S.inv.fischGeb||0) + (S.inv.krabbeGeb||0) + (S.inv.konserve||0);
+      if (cooked < 4 || !has("flasche") || S.bottle < 3){
+        toast("Benötigt: 4 zubereitete Speisen + volle Flasche"); return;
+      }
+      startGather("Verstauen …", 2.5, () => {
+        let need = 4;
+        ["fischGeb","krabbeGeb","konserve"].forEach(id => {
+          const n = Math.min(need, S.inv[id]||0); take(id, n); need -= n;
+        });
+        S.bottle = 0; S.raft = 3; updateRaftMesh();
+        toast("🧺 Alles verstaut. Das Floß ist startklar!"); saveGame();
+      });
+    }});
+    else acts.push({ at:raftG.position, label:"🌅 In See stechen", run: winGame });
+  }
+
   // Strandgut hat Priorität
   const dft = nearest(drifts, 2.4);
   if (dft) acts.push({ at:dft.position, label:"🎁 Untersuchen", run(){
@@ -752,6 +847,7 @@ function computeActions(){
       scene.remove(dft); drifts.splice(drifts.indexOf(dft), 1);
       if (it === "messer"){ give("messer"); S.found.messer = true; toast("🔪 Ein Messer! Du sammelst nun schneller."); }
       else if (it === "flasche"){ give("flasche"); S.found.flasche = true; toast("🍼 Eine Flasche! Fülle sie am Teich."); }
+      else if (it === "segel"){ give("segel"); S.found.segel = true; toast("⛵ Segeltuch! Genau das braucht dein Floß."); }
       else if (it === "konserve"){ give("konserve"); toast("🥫 Eine Konserve — wertvolle Nahrung!"); }
       else if (it === "seil"){ give("faser", 3); toast("🪢 Ein Stück Seil → 3 Fasern."); }
       else { give("holz", 2); toast("🪵 Eine Holzplanke → 2 Holz."); }
@@ -761,9 +857,11 @@ function computeActions(){
 
   const palm = nearest(palms.filter(p => p.userData.cool <= 0), 2.6);
   if (palm) acts.push({ at:palm.position, label:"🪵 Holz sammeln", run(){
-    startGather("Holz sammeln …", 2.2*speedy, () => {
-      give("holz", 2); palm.userData.cool = 60;
-      toast("🪵 +2 Holz"); saveGame();
+    const wspd = has("axt") ? 0.4 : speedy;
+    const yld = has("axt") ? 3 : 2;
+    startGather("Holz sammeln …", 2.2*wspd, () => {
+      give("holz", yld); palm.userData.cool = 60;
+      toast(`🪵 +${yld} Holz`); saveGame();
     });
   }});
 
@@ -1067,7 +1165,11 @@ function update(dt){
   if (gather){
     gather.until -= dt;
     $("progBar").firstElementChild.style.width = (100*(1 - gather.until/gather.total)) + "%";
-    if (gather.until <= 0){ const d = gather.done; cancelGather(); d(); }
+    if (gather.until <= 0){
+      const d = gather.done; cancelGather();
+      S.energy = Math.max(0, S.energy - 2.5); // Arbeiten kostet Kraft
+      d();
+    }
   }
 
   updateSky();
@@ -1095,11 +1197,14 @@ function rebuildStructures(){
 }
 function startGame(state){
   S = state;
+  if (typeof S.raft !== "number") S.raft = 0;
   player.position.set(typeof S.px === "number" ? S.px : 6, 0, typeof S.pz === "number" ? S.pz : 30);
   rebuildStructures();
+  updateRaftMesh();
   dead = false;
   $("start").style.display = "none";
   $("gameover").style.display = "none";
+  $("win").style.display = "none";
   running = true;
   clock.getDelta();
   loop();
@@ -1108,7 +1213,14 @@ function startGame(state){
     setTimeout(()=>toast("🕹️ Links: Laufen · Rechts: Handeln", 3500), 600);
     setTimeout(()=>toast("💧 Finde den Süßwasserteich im Inselinneren!", 3800), 4400);
     setTimeout(()=>toast("🛠️ Sammle 4 Holz + 2 Stein für ein Lagerfeuer.", 3800), 8600);
+    setTimeout(()=>toast("🛶 Am Südstrand liegt ein Wrack — dort beginnt deine Flucht.", 4200), 12800);
   }
+}
+function winGame(){
+  running = false;
+  clearSave();
+  $("winSub").textContent = `Nach ${S.day} ${S.day===1?"Tag":"Tagen"} entkommen`;
+  $("win").style.display = "flex";
 }
 function gameOver(){
   running = false;
@@ -1118,6 +1230,7 @@ function gameOver(){
 }
 $("btnNew").onclick = () => { clearSave(); startGame(freshState()); };
 $("btnRetry").onclick = () => startGame(freshState());
+$("btnWinNew").onclick = () => startGame(freshState());
 $("btnContinue").onclick = () => { const s = loadGame(); startGame(s || freshState()); };
 (function initStart(){
   if (loadGame()) $("btnContinue").style.display = "inline-block";
