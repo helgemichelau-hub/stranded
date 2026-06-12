@@ -177,7 +177,7 @@
 // ---------- Konfiguration ----------
 const CFG = {
   dayLength: 240,          // Sekunden pro Spieltag (24h)
-  islandR: 42,
+  islandR: 58,
   waterLevel: 0.6,
   viewSize: 26,
   speed: 7.5,
@@ -201,6 +201,10 @@ const ITEMS = {
   speer:   { nm:"Speer",      em:"🔱" },
   axt:     { nm:"Axt",        em:"🪓" },
   segel:   { nm:"Segeltuch",  em:"⛵" },
+  banane:  { nm:"Banane",     em:"🍌", eat:{hunger:14} },
+  fleischRoh:{ nm:"Rohes Fleisch", em:"🥩" },
+  fleischGeb:{ nm:"Gebr. Fleisch", em:"🍖", eat:{hunger:45} },
+  fackel:  { nm:"Fackel",     em:"🕯️" },
 };
 
 const RECIPES = [
@@ -212,6 +216,8 @@ const RECIPES = [
     desc:"Schneller & mehr Holz" },
   { id:"schutz",  nm:"Unterschlupf", em:"⛺", cost:{holz:8, faser:6}, place:true,
     desc:"Sicherer Schlafplatz" },
+  { id:"fackel",  nm:"Fackel",       em:"🕯️", cost:{holz:1, faser:1},
+    desc:"Licht für die Höhle (1× Erkundung)" },
 ];
 
 // ---------- Spielzustand ----------
@@ -221,7 +227,8 @@ function freshState(){
     v: 1,
     hours: 8, day: 1,
     health:100, hunger:100, thirst:100, energy:100,
-    px: 6, pz: 30,
+    px: 8, pz: 42,
+    cave: 0, peak: 0, driftN: 0,
     inv: {},
     bottle: 0,
     raft: 0,                   // 0 Wrack · 1 Rumpf · 2 Mast & Segel · 3 startklar
@@ -282,25 +289,33 @@ function hash(x, z){ // deterministisches Pseudo-Rauschen
   const s = Math.sin(x*127.1 + z*311.7) * 43758.5453;
   return s - Math.floor(s);
 }
+const JUNGLE = { x:-32, z:-2,  r:15 };   // dunkler Dschungel (Westen)
+const MOUNT  = { x:0,   z:-32 };          // Gebirge (Norden)
+const CAVE   = { x:0,   z:-18 };          // Höhleneingang am Südhang
+
 function terrainH(x, z){
   const d = Math.sqrt(x*x + z*z);
   const mask = Math.max(0, 1 - (d/CFG.islandR)*(d/CFG.islandR));
   let h = mask * 5;
   h += (Math.sin(x*0.23)*Math.cos(z*0.19)*0.7 + Math.sin(x*0.07 + z*0.11)*0.9) * Math.max(0, 1 - d/CFG.islandR);
+  // Gebirge im Norden
+  const dm = Math.hypot(x - MOUNT.x, z - MOUNT.z);
+  h += 9 * Math.exp(-(dm*dm) / (2*13*13)) * Math.min(1, mask*3);
   // Süßwasserteich einebnen
   const dp = Math.hypot(x - CFG.pond.x, z - CFG.pond.z);
   if (dp < CFG.pond.r + 2.5){
     const t = Math.min(1, Math.max(0, (CFG.pond.r + 2.5 - dp) / 2.5));
-    h = h * (1-t) + 1.5 * t;
+    h = h * (1-t) + 3.0 * t;
   }
   return h;
 }
 
 const SAND = new THREE.Color(0xe8d49a), GRASS1 = new THREE.Color(0x76b35e),
-      GRASS2 = new THREE.Color(0x4e8f46), ROCKC = new THREE.Color(0x9aa0a6);
+      GRASS2 = new THREE.Color(0x4e8f46), ROCKC = new THREE.Color(0x9aa0a6),
+      SCREE = new THREE.Color(0xc9cdd2);
 
 (function buildTerrain(){
-  const g = new THREE.PlaneGeometry(130, 130, 100, 100);
+  const g = new THREE.PlaneGeometry(180, 180, 120, 120);
   g.rotateX(-Math.PI/2);
   const pos = g.attributes.position;
   const colors = new Float32Array(pos.count * 3);
@@ -311,8 +326,15 @@ const SAND = new THREE.Color(0xe8d49a), GRASS1 = new THREE.Color(0x76b35e),
     pos.setY(i, h);
     if (h < 1.25) c.copy(SAND);
     else if (h < 2.1) c.copy(SAND).lerp(GRASS1, (h-1.25)/0.85);
-    else if (h < 4.0) c.copy(GRASS1).lerp(GRASS2, (h-2.1)/1.9);
-    else c.copy(GRASS2).lerp(ROCKC, Math.min(1,(h-4.0)/1.4));
+    else if (h < 5.0) c.copy(GRASS1).lerp(GRASS2, (h-2.1)/2.9);
+    else if (h < 9.0) c.copy(GRASS2).lerp(ROCKC, (h-5.0)/4.0);
+    else c.copy(ROCKC).lerp(SCREE, Math.min(1, (h-9.0)/2.5));
+    // Dschungel-Zone abdunkeln
+    const dj = Math.hypot(x - JUNGLE.x, z - JUNGLE.z);
+    if (dj < JUNGLE.r + 4 && h > 1.4){
+      const t = Math.min(1, Math.max(0, (JUNGLE.r + 4 - dj) / 5));
+      c.multiplyScalar(1 - 0.38*t);
+    }
     // leichte Farbvariation
     const v = (hash(x,z)-0.5)*0.06;
     c.offsetHSL(0, 0, v);
@@ -341,7 +363,7 @@ const pondMesh = new THREE.Mesh(
   new THREE.MeshPhongMaterial({ color:0x3fa3c9, shininess:70, specular:0xbfe8ff, transparent:true, opacity:0.92 })
 );
 pondMesh.rotation.x = -Math.PI/2;
-pondMesh.position.set(CFG.pond.x, 1.55, CFG.pond.z);
+pondMesh.position.set(CFG.pond.x, 3.05, CFG.pond.z);
 scene.add(pondMesh);
 
 // ---------- Objekt-Fabriken (Low-Poly) ----------
@@ -489,10 +511,10 @@ function scatter(arr, maker, n, minH, maxH, type){
     scene.add(o); arr.push(o);
   }
 }
-scatter(palms,  mkPalm,    18, 1.2, 3.4, "palm");
-scatter(rocks,  mkRock,    10, 1.6, 5.5, "rock");
-scatter(bushes, mkBush,    12, 1.5, 3.8, "bush");
-scatter(coconuts, mkCoconut, 6, 1.0, 2.4, "coco");
+scatter(palms,  mkPalm,    26, 1.2, 3.4, "palm");
+scatter(rocks,  mkRock,    16, 1.6, 11.5, "rock");
+scatter(bushes, mkBush,    16, 1.5, 4.8, "bush");
+scatter(coconuts, mkCoconut, 8, 1.0, 2.6, "coco");
 scatter(crabs,  mkCrab,     4, 0.85, 1.3, "crab");
 crabs.forEach(c => { c.userData.dir = Math.random()*Math.PI*2; c.userData.t = 0; });
 
@@ -515,12 +537,12 @@ function scatterInstanced(geo, color, count, minH, maxH, sMin, sMax){
   scene.add(im);
 }
 const grassGeo = new THREE.ConeGeometry(0.10, 0.55, 4); grassGeo.translate(0, 0.27, 0);
-scatterInstanced(grassGeo, 0x55a04a, 150, 1.6, 4.2, 0.7, 1.5);
+scatterInstanced(grassGeo, 0x55a04a, 200, 1.6, 6.0, 0.7, 1.5);
 const flowerGeo = new THREE.SphereGeometry(0.08, 5, 4); flowerGeo.translate(0, 0.14, 0);
 scatterInstanced(flowerGeo, 0xffd24a, 35, 1.7, 3.6, 0.8, 1.4);
 scatterInstanced(new THREE.SphereGeometry(0.11, 5, 4), 0xf3ece0, 28, 0.85, 1.2, 0.6, 1.2); // Muscheln
 const pebbleGeo = new THREE.DodecahedronGeometry(0.12, 0); pebbleGeo.translate(0, 0.06, 0);
-scatterInstanced(pebbleGeo, 0xa6a39a, 45, 0.9, 4.5, 0.6, 1.4);
+scatterInstanced(pebbleGeo, 0xa6a39a, 60, 0.9, 11.0, 0.6, 1.4);
 
 // ---------- Wolken ----------
 const clouds = [];
@@ -585,8 +607,100 @@ const hiRing = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.72, 22),
 hiRing.rotation.x = -Math.PI/2; hiRing.visible = false;
 scene.add(hiRing);
 
+// ---------- Dschungel: Bäume, Bananen, Wildschwein ----------
+const jungleTrees = [], bananas = [], boars = [];
+function mkJungleTree(){
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.32, 4.4, 6), mat(0x5a4026));
+  trunk.position.y = 2.2; g.add(trunk);
+  for (let i = 0; i < 3; i++){
+    const cnp = new THREE.Mesh(new THREE.SphereGeometry(1.0 + Math.random()*0.5, 7, 6), mat(0x1f5e33));
+    cnp.position.set((Math.random()-0.5)*1.2, 4.0 + Math.random()*1.0, (Math.random()-0.5)*1.2);
+    cnp.scale.y = 0.8; g.add(cnp);
+  }
+  g.scale.setScalar(0.9 + Math.random()*0.5);
+  return g;
+}
+function mkBanana(){
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.18, 1.6, 6), mat(0x7a9a3f));
+  trunk.position.y = 0.8; g.add(trunk);
+  for (let i = 0; i < 4; i++){
+    const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.55, 6, 5), mat(0x3c8f3c));
+    const a = i/4 * Math.PI*2 + 0.4;
+    leaf.position.set(Math.cos(a)*0.55, 1.6, Math.sin(a)*0.55);
+    leaf.scale.set(1.5, 0.22, 0.5); leaf.rotation.y = -a;
+    g.add(leaf);
+  }
+  const fruit = new THREE.Mesh(new THREE.SphereGeometry(0.18, 6, 5), mat(0xf2d24b));
+  fruit.position.set(0.22, 1.32, 0.1); fruit.scale.y = 1.5; g.add(fruit);
+  return g;
+}
+function mkBoar(){
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.42, 8, 6), mat(0x6e4a33));
+  body.scale.set(1.45, 0.95, 0.9); body.position.y = 0.5; g.add(body);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.27, 7, 6), mat(0x5e3e2a));
+  head.position.set(0, 0.55, 0.62); g.add(head);
+  const snout = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.16, 6), mat(0xc98f7a));
+  snout.rotation.x = Math.PI/2; snout.position.set(0, 0.5, 0.9); g.add(snout);
+  for (let i = 0; i < 4; i++){
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.4, 5), mat(0x4e342a));
+    leg.position.set(i%2 ? 0.22 : -0.22, 0.2, i<2 ? 0.35 : -0.35);
+    g.add(leg);
+  }
+  return g;
+}
+function jungleSpot(tries=80){
+  for (let i = 0; i < tries; i++){
+    const a = Math.random()*Math.PI*2, r = Math.random()*JUNGLE.r;
+    const x = JUNGLE.x + Math.cos(a)*r, z = JUNGLE.z + Math.sin(a)*r;
+    const h = terrainH(x, z);
+    const dp = Math.hypot(x-CFG.pond.x, z-CFG.pond.z);
+    if (h > 1.6 && h < 6 && dp > CFG.pond.r + 1.5) return {x, z};
+  }
+  return null;
+}
+for (let i = 0; i < 16; i++){
+  const s = jungleSpot(); if (!s) continue;
+  const t = shadowify(mkJungleTree());
+  placeOnTerrain(t, s.x, s.z); t.rotation.y = Math.random()*Math.PI*2;
+  scene.add(t); jungleTrees.push(t); t.userData.cool = 0;
+}
+for (let i = 0; i < 4; i++){
+  const s = jungleSpot(); if (!s) continue;
+  const b = shadowify(mkBanana());
+  placeOnTerrain(b, s.x, s.z); b.rotation.y = Math.random()*Math.PI*2;
+  scene.add(b); bananas.push(b); b.userData.cool = 0;
+}
+(function spawnBoar(){
+  const s = jungleSpot() || { x:JUNGLE.x, z:JUNGLE.z };
+  const b = shadowify(mkBoar());
+  placeOnTerrain(b, s.x, s.z);
+  b.userData = { dir: Math.random()*Math.PI*2, t: 0, dead: 0 };
+  scene.add(b); boars.push(b);
+})();
+
+// ---------- Höhle am Berghang ----------
+const caveG = new THREE.Group();
+(function mkCave(){
+  for (let i = 0; i < 3; i++){
+    const r = new THREE.Mesh(new THREE.DodecahedronGeometry(1.0 + Math.random()*0.6, 0), mat(0x7d7d82));
+    r.position.set((i-1)*1.5, 0.6, -0.4 - Math.random()*0.4);
+    r.scale.y = 1.2; caveG.add(r);
+  }
+  const hole = new THREE.Mesh(new THREE.CircleGeometry(0.85, 16),
+    new THREE.MeshBasicMaterial({ color:0x04070b }));
+  hole.position.set(0, 0.85, 0.45);
+  hole.rotation.x = -0.25;
+  caveG.add(hole);
+  shadowify(caveG);
+  caveG.position.set(CAVE.x, terrainH(CAVE.x, CAVE.z), CAVE.z);
+  scene.add(caveG);
+})();
+
 // ---------- Floß-Bauplatz (Südstrand) ----------
-const RAFT = { x: 8, z: 37 };
+const RAFT = { x: 10, z: 51 };
 const raftG = new THREE.Group();
 raftG.position.set(RAFT.x, terrainH(RAFT.x, RAFT.z), RAFT.z);
 scene.add(raftG);
@@ -632,12 +746,19 @@ updateRaftMesh();
 
 function spawnDrift(){
   const s = randSpot(0.85, 1.2); if (!s) return;
-  const pool = [];
-  if (!S.found.messer)  pool.push("messer");
-  if (!S.found.flasche) pool.push("flasche");
-  if (!S.found.segel && (S.raft||0) >= 1) pool.push("segel", "segel"); // doppelt gewichtet
-  pool.push("konserve", "seil", "planke");
-  const item = pool[Math.floor(Math.random()*pool.length)];
+  let item;
+  const n = S.driftN || 0;
+  if (n === 0 && !S.found.messer) item = "messer";          // 1. Fund garantiert
+  else if (n <= 1 && !S.found.flasche) item = "flasche";    // 2. Fund garantiert
+  else {
+    const pool = [];
+    if (!S.found.messer)  pool.push("messer");
+    if (!S.found.flasche) pool.push("flasche");
+    if (!S.found.segel && (S.raft||0) >= 1) pool.push("segel", "segel"); // doppelt gewichtet
+    pool.push("konserve", "seil", "planke");
+    item = pool[Math.floor(Math.random()*pool.length)];
+  }
+  S.driftN = n + 1;
   const o = mkDrift();
   shadowify(o);
   placeOnTerrain(o, s.x, s.z);
@@ -734,6 +855,7 @@ function craft(r){
   for (const k in r.cost) take(k, r.cost[k]);
   if (r.id === "speer"){ give("speer"); toast("🔱 Speer hergestellt! Fische am Meeresufer."); }
   else if (r.id === "axt"){ give("axt"); toast("🪓 Axt hergestellt! Holzfällen geht jetzt deutlich schneller."); }
+  else if (r.id === "fackel"){ give("fackel"); toast("🕯️ Fackel gefertigt — damit kannst du die Höhle erkunden."); }
   else if (r.id === "feuer"){
     const f = shadowify(mkFire());
     placeOnTerrain(f, player.position.x + 1.4, player.position.z + 1.0);
@@ -855,7 +977,7 @@ function computeActions(){
     });
   }});
 
-  const palm = nearest(palms.filter(p => p.userData.cool <= 0), 2.6);
+  const palm = nearest(palms.concat(jungleTrees).filter(p => p.userData.cool <= 0), 2.6);
   if (palm) acts.push({ at:palm.position, label:"🪵 Holz sammeln", run(){
     const wspd = has("axt") ? 0.4 : speedy;
     const yld = has("axt") ? 3 : 2;
@@ -907,6 +1029,71 @@ function computeActions(){
     });
   }});
 
+  const bana = nearest(bananas.filter(b => b.userData.cool <= 0), 2.2);
+  if (bana) acts.push({ at:bana.position, label:"🍌 Bananen ernten", run(){
+    startGather("Ernten …", 1.6*speedy, () => {
+      give("banane", 2); bana.userData.cool = 75;
+      toast("🍌 +2 Bananen"); saveGame();
+    });
+  }});
+
+  const boar = nearest(boars.filter(b => !b.userData.dead), 2.8);
+  if (boar && has("speer")) acts.push({ at:boar.position, label:"🐗 Jagen", run(){
+    startGather("Anpirschen …", 1.4, () => {
+      if (Math.random() < 0.55){
+        give("fleischRoh", 3); boar.userData.dead = 120; boar.visible = false;
+        toast("🐗 Erlegt! +3 rohes Fleisch — brate es am Feuer.");
+      } else {
+        S.health = Math.max(1, S.health - 12);
+        toast("💢 Das Wildschwein erwischt dich! −12 Gesundheit");
+        const s = jungleSpot(); if (s){ boar.position.set(s.x, terrainH(s.x, s.z), s.z); }
+      }
+      saveGame();
+    });
+  }});
+
+  // Höhle erkunden
+  const dc = Math.hypot(player.position.x - CAVE.x, player.position.z - CAVE.z);
+  if (dc < 3.5 && (S.cave||0) < 3){
+    acts.push({ at:caveG.position, label:"🕳️ Höhle erkunden", run(){
+      if (!has("fackel")){ toast("Zu dunkel — du brauchst eine Fackel (🪵 1 + 🌾 1)."); return; }
+      startGather("Erkunden …", 3.0, () => {
+        take("fackel", 1);
+        S.cave = (S.cave||0) + 1;
+        if (S.cave === 1){
+          give("konserve", 2);
+          toast("🕳️ Aschereste und 2 Konserven — hier hat schon jemand überlebt …", 4200);
+        } else if (S.cave === 2){
+          give("faser", 3);
+          if (!has("messer") && !S.found.messer){ give("messer"); S.found.messer = true; }
+          toast("📖 Ein altes Lager! Im Tagebuch: „Tag 34. Das Segel ist mein letzter Versuch …“", 4600);
+        } else {
+          give("konserve", 3);
+          if ((S.raft||0) >= 1 && !S.found.segel && !has("segel")){
+            give("segel"); S.found.segel = true;
+            toast("🧳 Eine Truhe — mit gefaltetem Segeltuch! Er hat es nie benutzt …", 4600);
+          } else {
+            give("holz", 4);
+            toast("🧳 Eine Truhe des früheren Gestrandeten — Vorräte und Material!", 4200);
+          }
+        }
+        saveGame();
+      });
+    }});
+  }
+
+  // Gipfel: Ausschau halten
+  const dmt = Math.hypot(player.position.x - MOUNT.x, player.position.z - MOUNT.z);
+  if (dmt < 5 && !(S.peak)){
+    acts.push({ label:"🔭 Ausschau halten", run(){
+      startGather("Spähen …", 2.0, () => {
+        S.peak = 1; spawnDrift();
+        toast("🔭 Was für eine Aussicht! Du erspähst etwas am Strand.", 4000);
+        saveGame();
+      });
+    }});
+  }
+
   // Teich
   const dp = Math.hypot(player.position.x - CFG.pond.x, player.position.z - CFG.pond.z);
   if (dp < CFG.pond.r + 1.6){
@@ -937,6 +1124,9 @@ function computeActions(){
     }});
     if (has("krabbe")) acts.push({ at:fire.position, label:"🍤 Krabbe braten", run(){
       startGather("Braten …", 2.0, () => { take("krabbe"); give("krabbeGeb"); toast("🍤 Krabbe gebraten!"); saveGame(); });
+    }});
+    if (has("fleischRoh")) acts.push({ at:fire.position, label:"🍖 Fleisch braten", run(){
+      startGather("Braten …", 2.2, () => { take("fleischRoh"); give("fleischGeb"); toast("🍖 Fleisch gebraten — eine Festmahlzeit!"); saveGame(); });
     }});
   }
   const shelter = nearest(shelters, 3.5);
@@ -1098,7 +1288,28 @@ function update(dt){
   if (S.health <= 0 && !dead){ dead = true; gameOver(); return; }
 
   // Cooldowns
-  [palms, rocks, bushes].forEach(arr => arr.forEach(o => { if (o.userData.cool > 0) o.userData.cool -= dt; }));
+  [palms, rocks, bushes, bananas].forEach(arr => arr.forEach(o => { if (o.userData.cool > 0) o.userData.cool -= dt; }));
+
+  // Wildschwein-KI
+  boars.forEach(b => {
+    if (b.userData.dead > 0){
+      b.userData.dead -= dt;
+      if (b.userData.dead <= 0){
+        const s = jungleSpot(); if (s){ b.position.set(s.x, terrainH(s.x, s.z), s.z); }
+        b.visible = true;
+      }
+      return;
+    }
+    b.userData.t -= dt;
+    if (b.userData.t <= 0){ b.userData.dir = Math.random()*Math.PI*2; b.userData.t = 2 + Math.random()*2.5; }
+    const nx = b.position.x + Math.sin(b.userData.dir)*1.1*dt;
+    const nz = b.position.z + Math.cos(b.userData.dir)*1.1*dt;
+    const dj = Math.hypot(nx - JUNGLE.x, nz - JUNGLE.z);
+    const hh = terrainH(nx, nz);
+    if (dj < JUNGLE.r && hh > 1.5 && hh < 6){
+      b.position.set(nx, hh, nz); b.rotation.y = b.userData.dir;
+    } else b.userData.t = 0;
+  });
 
   // Krabben-KI
   crabs.forEach(c => {
@@ -1198,7 +1409,10 @@ function rebuildStructures(){
 function startGame(state){
   S = state;
   if (typeof S.raft !== "number") S.raft = 0;
-  player.position.set(typeof S.px === "number" ? S.px : 6, 0, typeof S.pz === "number" ? S.pz : 30);
+  if (typeof S.cave !== "number") S.cave = 0;
+  if (typeof S.peak !== "number") S.peak = 0;
+  if (typeof S.driftN !== "number") S.driftN = 0;
+  player.position.set(typeof S.px === "number" ? S.px : 8, 0, typeof S.pz === "number" ? S.pz : 42);
   rebuildStructures();
   updateRaftMesh();
   dead = false;
@@ -1214,6 +1428,7 @@ function startGame(state){
     setTimeout(()=>toast("💧 Finde den Süßwasserteich im Inselinneren!", 3800), 4400);
     setTimeout(()=>toast("🛠️ Sammle 4 Holz + 2 Stein für ein Lagerfeuer.", 3800), 8600);
     setTimeout(()=>toast("🛶 Am Südstrand liegt ein Wrack — dort beginnt deine Flucht.", 4200), 12800);
+    setTimeout(()=>toast("🌑 Im Westen liegt ein dunkler Dschungel, im Norden ein Berg mit einer Höhle …", 4500), 17400);
   }
 }
 function winGame(){
