@@ -20,8 +20,13 @@
 
   #topbar { position:absolute; top:env(safe-area-inset-top, 8px); left:0; right:0;
     display:flex; justify-content:space-between; align-items:flex-start; padding:10px 12px; }
+  #rightcol { display:flex; flex-direction:column; align-items:flex-end; gap:6px; }
   #daytime { background:rgba(10,20,30,.55); color:#f3ead2; border-radius:12px;
     padding:6px 12px; font-size:14px; font-weight:600; letter-spacing:.3px; backdrop-filter:blur(4px); }
+  #resbar { background:rgba(10,20,30,.55); color:#f3ead2; border-radius:10px;
+    padding:4px 10px; font-size:12.5px; font-weight:600; backdrop-filter:blur(4px); }
+  #mmap { width:96px; height:96px; border-radius:12px;
+    border:1.5px solid rgba(255,255,255,.28); background:rgba(10,20,30,.5); }
 
   #stats { display:flex; flex-direction:column; gap:5px; }
   .stat { display:flex; align-items:center; gap:6px; }
@@ -112,7 +117,11 @@
       <div class="stat"><span>💧</span><div class="bar" id="bThirst"><i style="width:100%"></i></div></div>
       <div class="stat"><span>⚡</span><div class="bar" id="bEnergy"><i style="width:100%"></i></div></div>
     </div>
-    <div id="daytime">Tag 1 · 08:00</div>
+    <div id="rightcol">
+      <div id="daytime">Tag 1 · 08:00</div>
+      <div id="resbar">🪵 0 · 🪨 0 · 🌾 0</div>
+      <canvas id="mmap" width="96" height="96"></canvas>
+    </div>
   </div>
 
   <div id="joyZone"><div id="joyBase"></div><div id="joyKnob"></div></div>
@@ -229,6 +238,7 @@ function freshState(){
     health:100, hunger:100, thirst:100, energy:100,
     px: 8, pz: 42,
     cave: 0, peak: 0, driftN: 0,
+    weather: { type:"clear", t: 8 },
     inv: {},
     bottle: 0,
     raft: 0,                   // 0 Wrack · 1 Rumpf · 2 Mast & Segel · 3 startklar
@@ -298,9 +308,11 @@ function terrainH(x, z){
   const mask = Math.max(0, 1 - (d/CFG.islandR)*(d/CFG.islandR));
   let h = mask * 5;
   h += (Math.sin(x*0.23)*Math.cos(z*0.19)*0.7 + Math.sin(x*0.07 + z*0.11)*0.9) * Math.max(0, 1 - d/CFG.islandR);
-  // Gebirge im Norden
+  // Gebirge im Norden: Hauptgipfel + Nebengipfel + felsige Grate
   const dm = Math.hypot(x - MOUNT.x, z - MOUNT.z);
-  h += 9 * Math.exp(-(dm*dm) / (2*13*13)) * Math.min(1, mask*3);
+  const dm2 = Math.hypot(x - 9, z + 24);
+  h += (13 * Math.exp(-dm/6.5) + 5.5 * Math.exp(-dm2/4.5)) * Math.min(1, mask*3);
+  if (dm < 18) h += Math.abs(Math.sin(x*0.7)*Math.cos(z*0.6)) * (1 - dm/18) * 1.6;
   // Süßwasserteich einebnen
   const dp = Math.hypot(x - CFG.pond.x, z - CFG.pond.z);
   if (dp < CFG.pond.r + 2.5){
@@ -312,7 +324,7 @@ function terrainH(x, z){
 
 const SAND = new THREE.Color(0xe8d49a), GRASS1 = new THREE.Color(0x76b35e),
       GRASS2 = new THREE.Color(0x4e8f46), ROCKC = new THREE.Color(0x9aa0a6),
-      SCREE = new THREE.Color(0xc9cdd2);
+      SCREE = new THREE.Color(0xc9cdd2), SNOWC = new THREE.Color(0xf4f7fa);
 
 (function buildTerrain(){
   const g = new THREE.PlaneGeometry(180, 180, 120, 120);
@@ -328,7 +340,8 @@ const SAND = new THREE.Color(0xe8d49a), GRASS1 = new THREE.Color(0x76b35e),
     else if (h < 2.1) c.copy(SAND).lerp(GRASS1, (h-1.25)/0.85);
     else if (h < 5.0) c.copy(GRASS1).lerp(GRASS2, (h-2.1)/2.9);
     else if (h < 9.0) c.copy(GRASS2).lerp(ROCKC, (h-5.0)/4.0);
-    else c.copy(ROCKC).lerp(SCREE, Math.min(1, (h-9.0)/2.5));
+    else if (h < 13.0) c.copy(ROCKC).lerp(SCREE, (h-9.0)/4.0);
+    else c.copy(SCREE).lerp(SNOWC, Math.min(1, (h-13.0)/2.5));
     // Dschungel-Zone abdunkeln
     const dj = Math.hypot(x - JUNGLE.x, z - JUNGLE.z);
     if (dj < JUNGLE.r + 4 && h > 1.4){
@@ -430,6 +443,11 @@ function mkDrift(){
   g.add(box);
   const glow = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.7, 4), mat(0xffe27a));
   glow.position.y = 1.0; g.add(glow); g.userData.glow = glow;
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.55, 9, 8, 1, true),
+    new THREE.MeshBasicMaterial({ color:0xffe27a, transparent:true, opacity:0.28,
+      depthWrite:false, side:THREE.DoubleSide }));
+  beam.position.y = 4.6; beam.userData.noShadow = true; beam.visible = false;
+  g.add(beam); g.userData.beam = beam;
   return g;
 }
 function mkFire(){
@@ -600,6 +618,33 @@ const gulls = [];
   }
 })();
 
+// ---------- Regen ----------
+const RAIN_N = 350;
+const rainGeo = new THREE.BufferGeometry();
+(function initRain(){
+  const p = new Float32Array(RAIN_N*3);
+  for (let i = 0; i < RAIN_N; i++){
+    p[i*3]   = (Math.random()-0.5)*38;
+    p[i*3+1] = Math.random()*16;
+    p[i*3+2] = (Math.random()-0.5)*38;
+  }
+  rainGeo.setAttribute("position", new THREE.BufferAttribute(p, 3));
+})();
+const rainMat = new THREE.PointsMaterial({ color:0xa9cce4, size:1.7,
+  sizeAttenuation:false, transparent:true, opacity:0, depthWrite:false });
+const rain = new THREE.Points(rainGeo, rainMat);
+scene.add(rain);
+let wB = 0, rainFillT = 0;        // Wetter-Blendwert & Flaschen-Fülltimer
+const GRAYC = new THREE.Color(0x7e8b97);
+function setWeather(type, hours){
+  const prev = S.weather.type;
+  S.weather.type = type; S.weather.t = hours;
+  if (type === prev) return;
+  if (type === "rain")  toast("🌧️ Regen zieht auf …");
+  else if (type === "storm") toast("⛈️ Ein Sturm! Such Schutz im Unterschlupf!", 3600);
+  else toast("☀️ Der Himmel klart auf.");
+}
+
 // ---------- Aktions-Markierung (pulsierender Ring) ----------
 const hiRing = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.72, 22),
   new THREE.MeshBasicMaterial({ color:0xffe27a, transparent:true, opacity:0.85,
@@ -744,6 +789,67 @@ function updateRaftMesh(){
 }
 updateRaftMesh();
 
+// ---------- Mini-Map ----------
+const MM_RANGE = 136; // Weltbreite, die die Karte abdeckt
+const mmap = document.getElementById("mmap");
+const mmCtx = mmap.getContext("2d");
+const mmStatic = document.createElement("canvas");
+mmStatic.width = 96; mmStatic.height = 96;
+(function bakeMinimap(){
+  const c = mmStatic.getContext("2d");
+  const img = c.createImageData(96, 96);
+  const col = new THREE.Color();
+  for (let j = 0; j < 96; j++){
+    for (let i = 0; i < 96; i++){
+      const wx = (i/95 - 0.5) * MM_RANGE;
+      const wz = (j/95 - 0.5) * MM_RANGE;
+      const hh = terrainH(wx, wz);
+      const dp = Math.hypot(wx - CFG.pond.x, wz - CFG.pond.z);
+      if (dp < CFG.pond.r) col.setHex(0x3fa3c9);
+      else if (hh < CFG.waterLevel + 0.15) col.setHex(0x21618a);
+      else if (hh < 1.25) col.copy(SAND);
+      else if (hh < 2.1) col.copy(SAND).lerp(GRASS1, (hh-1.25)/0.85);
+      else if (hh < 5.0) col.copy(GRASS1).lerp(GRASS2, (hh-2.1)/2.9);
+      else if (hh < 9.0) col.copy(GRASS2).lerp(ROCKC, (hh-5.0)/4.0);
+      else if (hh < 13.0) col.copy(ROCKC).lerp(SCREE, (hh-9.0)/4.0);
+      else col.copy(SNOWC);
+      const dj = Math.hypot(wx - JUNGLE.x, wz - JUNGLE.z);
+      if (dj < JUNGLE.r + 4 && hh > 1.4){
+        const t = Math.min(1, Math.max(0, (JUNGLE.r + 4 - dj) / 5));
+        col.multiplyScalar(1 - 0.38*t);
+      }
+      const k = (j*96 + i) * 4;
+      img.data[k] = col.r*255; img.data[k+1] = col.g*255;
+      img.data[k+2] = col.b*255; img.data[k+3] = 235;
+    }
+  }
+  c.putImageData(img, 0, 0);
+})();
+function mmPt(wx, wz){ return [ (wx/MM_RANGE + 0.5)*96, (wz/MM_RANGE + 0.5)*96 ]; }
+function mmDot(wx, wz, color, r){
+  const p = mmPt(wx, wz);
+  mmCtx.fillStyle = color;
+  mmCtx.beginPath(); mmCtx.arc(p[0], p[1], r||2.2, 0, Math.PI*2); mmCtx.fill();
+}
+function drawMinimap(){
+  mmCtx.clearRect(0, 0, 96, 96);
+  mmCtx.drawImage(mmStatic, 0, 0);
+  mmDot(CAVE.x, CAVE.z, "#2b2f36", 2.4);                      // Höhle
+  mmDot(RAFT.x, RAFT.z, "#e9dfc0", 2.6);                       // Floß
+  fires.forEach(f => mmDot(f.position.x, f.position.z, "#ff9a3b", 2.4));
+  shelters.forEach(s => mmDot(s.position.x, s.position.z, "#d9b36a", 2.4));
+  if (S && S.peak){
+    const blink = 0.55 + Math.sin(performance.now()*0.006)*0.45;
+    mmCtx.globalAlpha = blink;
+    drifts.forEach(d => mmDot(d.position.x, d.position.z, "#ffe27a", 2.6));
+    mmCtx.globalAlpha = 1;
+  }
+  // Spieler
+  const p = mmPt(player.position.x, player.position.z);
+  mmCtx.fillStyle = "#ffffff"; mmCtx.strokeStyle = "#1c2733"; mmCtx.lineWidth = 1.4;
+  mmCtx.beginPath(); mmCtx.arc(p[0], p[1], 3, 0, Math.PI*2); mmCtx.fill(); mmCtx.stroke();
+}
+
 function spawnDrift(){
   const s = randSpot(0.85, 1.2); if (!s) return;
   let item;
@@ -763,6 +869,7 @@ function spawnDrift(){
   shadowify(o);
   placeOnTerrain(o, s.x, s.z);
   o.userData.type = "drift"; o.userData.item = item;
+  if (o.userData.beam) o.userData.beam.visible = !!(S && S.peak);
   scene.add(o); drifts.push(o);
   toast("🌊 Etwas wurde an den Strand gespült …");
 }
@@ -778,7 +885,9 @@ function toast(msg, ms=2600){
 }
 function fmtTime(){
   const h = Math.floor(S.hours), m = Math.floor((S.hours - h)*60);
-  return `Tag ${S.day} · ${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}`;
+  const w = S.weather ? S.weather.type : "clear";
+  const ic = w === "storm" ? "⛈️" : w === "rain" ? "🌧️" : "☀️";
+  return `Tag ${S.day} · ${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")} ${ic}`;
 }
 function updateBars(){
   $("bHealth").firstElementChild.style.width = S.health + "%";
@@ -786,6 +895,8 @@ function updateBars(){
   $("bThirst").firstElementChild.style.width = S.thirst + "%";
   $("bEnergy").firstElementChild.style.width = S.energy + "%";
   $("daytime").textContent = fmtTime();
+  $("resbar").textContent = `🪵 ${S.inv.holz||0} · 🪨 ${S.inv.stein||0} · 🌾 ${S.inv.faser||0}`;
+  drawMinimap();
 }
 
 // Inventar
@@ -969,7 +1080,11 @@ function computeActions(){
       scene.remove(dft); drifts.splice(drifts.indexOf(dft), 1);
       if (it === "messer"){ give("messer"); S.found.messer = true; toast("🔪 Ein Messer! Du sammelst nun schneller."); }
       else if (it === "flasche"){ give("flasche"); S.found.flasche = true; toast("🍼 Eine Flasche! Fülle sie am Teich."); }
-      else if (it === "segel"){ give("segel"); S.found.segel = true; toast("⛵ Segeltuch! Genau das braucht dein Floß."); }
+      else if (it === "segel"){
+        if (S.found.segel || has("segel") || (S.raft||0) >= 2){
+          give("faser", 3); toast("🪢 Ein altes Tuch — du zerlegst es zu 3 Fasern.");
+        } else { give("segel"); S.found.segel = true; toast("⛵ Segeltuch! Genau das braucht dein Floß."); }
+      }
       else if (it === "konserve"){ give("konserve"); toast("🥫 Eine Konserve — wertvolle Nahrung!"); }
       else if (it === "seil"){ give("faser", 3); toast("🪢 Ein Stück Seil → 3 Fasern."); }
       else { give("holz", 2); toast("🪵 Eine Holzplanke → 2 Holz."); }
@@ -1088,7 +1203,8 @@ function computeActions(){
     acts.push({ label:"🔭 Ausschau halten", run(){
       startGather("Spähen …", 2.0, () => {
         S.peak = 1; spawnDrift();
-        toast("🔭 Was für eine Aussicht! Du erspähst etwas am Strand.", 4000);
+        drifts.forEach(d => { if (d.userData.beam) d.userData.beam.visible = true; });
+        toast("🔭 Was für eine Aussicht! Angespültes erkennst du nun von Weitem.", 4200);
         saveGame();
       });
     }});
@@ -1215,6 +1331,15 @@ function updateSky(){
                    player.position.z + 25);
   sun.target.position.copy(player.position);
   sun.target.updateMatrixWorld();
+  // Wetter dämpft Licht und Sicht
+  if (wB > 0.01){
+    sun.intensity  *= (1 - wB);
+    hemi.intensity *= (1 - wB*0.6);
+    amb.intensity  *= (1 - wB*0.4);
+    scene.background.lerp(GRAYC, wB*0.7);
+    scene.fog.color.lerp(GRAYC, wB*0.7);
+    scene.fog.far *= (1 - wB*0.45);
+  }
 }
 
 // ---------- Spielschleife ----------
@@ -1372,6 +1497,51 @@ function update(dt){
     hiRing.scale.set(ps, ps, ps);
   }
 
+  // Wetter
+  S.weather.t -= dt * 24 / CFG.dayLength;
+  if (S.weather.t <= 0){
+    const r = Math.random();
+    if (S.weather.type === "clear"){
+      if (r < 0.30)      setWeather("rain",  3 + Math.random()*3);
+      else if (r < 0.42) setWeather("storm", 2 + Math.random()*1.5);
+      else               setWeather("clear", 5 + Math.random()*7);
+    } else setWeather("clear", 6 + Math.random()*8);
+  }
+  const wTarget = S.weather.type === "storm" ? 0.78 : S.weather.type === "rain" ? 0.5 : 0;
+  wB += (wTarget - wB) * Math.min(1, dt * 0.8);
+
+  // Regenpartikel
+  if (wB > 0.03){
+    rain.visible = true;
+    rain.position.set(player.position.x, player.position.y, player.position.z);
+    const rp = rainGeo.attributes.position;
+    const fall = (14 + wB*16) * dt;
+    for (let i = 0; i < RAIN_N; i++){
+      let y = rp.getY(i) - fall;
+      if (y < 0) y += 16;
+      rp.setY(i, y);
+    }
+    rp.needsUpdate = true;
+    rainMat.opacity = Math.min(0.8, wB * 1.3);
+  } else { rain.visible = false; rainMat.opacity = 0; }
+
+  // Regen füllt die Flasche
+  if (S.weather.type !== "clear" && has("flasche") && S.bottle < 3){
+    rainFillT += dt;
+    if (rainFillT > 15){
+      rainFillT = 0; S.bottle++;
+      toast(`🍼 Der Regen füllt deine Flasche (${S.bottle}/3).`);
+    }
+  } else rainFillT = 0;
+
+  // Sturm zehrt — außer im Schutz von Unterschlupf oder Höhle
+  if (S.weather.type === "storm"){
+    const dcv = Math.hypot(player.position.x - CAVE.x, player.position.z - CAVE.z);
+    if (!nearest(shelters, 4.5) && dcv > 3.5){
+      S.energy = Math.max(0, S.energy - 0.5*dt);
+    }
+  }
+
   // Sammeln-Fortschritt
   if (gather){
     gather.until -= dt;
@@ -1412,6 +1582,7 @@ function startGame(state){
   if (typeof S.cave !== "number") S.cave = 0;
   if (typeof S.peak !== "number") S.peak = 0;
   if (typeof S.driftN !== "number") S.driftN = 0;
+  if (!S.weather || !S.weather.type) S.weather = { type:"clear", t: 8 };
   player.position.set(typeof S.px === "number" ? S.px : 8, 0, typeof S.pz === "number" ? S.pz : 42);
   rebuildStructures();
   updateRaftMesh();
