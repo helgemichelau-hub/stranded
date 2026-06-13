@@ -1157,7 +1157,7 @@ function computeActions(){
     startGather("Anpirschen …", 1.4, () => {
       if (Math.random() < 0.55){
         give("fleischRoh", 3); boar.userData.dead = 120; boar.visible = false;
-        toast("🐗 Erlegt! +3 rohes Fleisch — brate es am Feuer.");
+        sfx("pickup"); toast("🐗 Erlegt! +3 rohes Fleisch — brate es am Feuer.");
       } else {
         S.health = Math.max(1, S.health - 12);
         toast("💢 Das Wildschwein erwischt dich! −12 Gesundheit");
@@ -1343,6 +1343,161 @@ function updateSky(){
 }
 
 // ---------- Spielschleife ----------
+
+// =================== AUDIO SYSTEM ===================
+let AC = null, mG = null;
+const AMB = {};
+let thunderTimer = 14;
+
+document.addEventListener("pointerdown", function(){
+  if (!AC){
+    try {
+      AC = new (window.AudioContext || window.webkitAudioContext)();
+      _buildAmbient();
+    } catch(e){}
+  }
+  if (AC && AC.state === "suspended") AC.resume();
+}, { capture:true });
+
+function _buildAmbient(){
+  mG = AC.createGain(); mG.gain.value = 0.85; mG.connect(AC.destination);
+  const sr = AC.sampleRate;
+  const nb = AC.createBuffer(1, sr*8, sr);
+  const nd = nb.getChannelData(0);
+  for(let i=0;i<nd.length;i++) nd[i] = Math.random()*2-1;
+  function ns(){ const s=AC.createBufferSource(); s.buffer=nb; s.loop=true; s.start(0); return s; }
+
+  // Ocean: lowpass noise + LFO Wellenrhythmus
+  const oc={s:ns(),f1:AC.createBiquadFilter(),f2:AC.createBiquadFilter(),g:AC.createGain()};
+  oc.f1.type="lowpass"; oc.f1.frequency.value=270; oc.f1.Q.value=0.7;
+  oc.f2.type="highpass"; oc.f2.frequency.value=55;
+  const ocLfo=AC.createOscillator(), ocLg=AC.createGain();
+  ocLfo.frequency.value=0.13; ocLg.gain.value=0.13; ocLfo.start();
+  oc.s.connect(oc.f1); oc.f1.connect(oc.f2); oc.f2.connect(oc.g); oc.g.connect(mG);
+  ocLfo.connect(ocLg); ocLg.connect(oc.g.gain); oc.g.gain.value=0; AMB.ocean=oc.g;
+
+  // Rain: highpass noise
+  const rn={s:ns(),f1:AC.createBiquadFilter(),f2:AC.createBiquadFilter(),g:AC.createGain()};
+  rn.f1.type="highpass"; rn.f1.frequency.value=2400;
+  rn.f2.type="lowpass"; rn.f2.frequency.value=9000;
+  rn.s.connect(rn.f1); rn.f1.connect(rn.f2); rn.f2.connect(rn.g); rn.g.connect(mG);
+  rn.g.gain.value=0; AMB.rain=rn.g;
+
+  // Wind: bandpass + langsamer LFO
+  const wn={s:ns(),f:AC.createBiquadFilter(),g:AC.createGain()};
+  wn.f.type="bandpass"; wn.f.frequency.value=420; wn.f.Q.value=0.35;
+  const wnLfo=AC.createOscillator(), wnLg=AC.createGain();
+  wnLfo.frequency.value=0.08; wnLg.gain.value=180; wnLfo.start();
+  wnLfo.connect(wnLg); wnLg.connect(wn.f.frequency);
+  wn.s.connect(wn.f); wn.f.connect(wn.g); wn.g.connect(mG);
+  wn.g.gain.value=0; AMB.wind=wn.g;
+
+  // Nacht (Grillen): Sinus + Tremolo
+  const nt={o:AC.createOscillator(),g:AC.createGain()};
+  nt.o.type="sine"; nt.o.frequency.value=4100;
+  const ntLfo=AC.createOscillator(), ntLg=AC.createGain();
+  ntLfo.frequency.value=15; ntLg.gain.value=0.04; ntLfo.start();
+  ntLfo.connect(ntLg); ntLg.connect(nt.g.gain);
+  nt.o.connect(nt.g); nt.g.connect(mG);
+  nt.g.gain.value=0; AMB.night=nt.g; nt.o.start();
+
+  // Feuer: bandpass noise
+  const fi={s:ns(),f:AC.createBiquadFilter(),g:AC.createGain()};
+  fi.f.type="bandpass"; fi.f.frequency.value=340; fi.f.Q.value=0.9;
+  fi.s.connect(fi.f); fi.f.connect(fi.g); fi.g.connect(mG);
+  fi.g.gain.value=0; AMB.fire=fi.g;
+
+  // Dschungel: moduliertes bandpass noise
+  const jg={s:ns(),f:AC.createBiquadFilter(),g:AC.createGain()};
+  jg.f.type="bandpass"; jg.f.frequency.value=1800; jg.f.Q.value=0.5;
+  const jgLfo=AC.createOscillator(), jgLg=AC.createGain();
+  jgLfo.frequency.value=0.22; jgLg.gain.value=600; jgLfo.start();
+  jgLfo.connect(jgLg); jgLg.connect(jg.f.frequency);
+  jg.s.connect(jg.f); jg.f.connect(jg.g); jg.g.connect(mG);
+  jg.g.gain.value=0; AMB.jungle=jg.g;
+}
+
+function _sg(gn, tgt, dt){ gn.gain.value += (tgt-gn.gain.value)*Math.min(1,dt*2.2); }
+
+function updateAmbience(dt){
+  if (!AC || !AMB.ocean) return;
+  const hH = terrainH(player.position.x, player.position.z);
+  const wt = (S && S.weather) ? S.weather.type : "clear";
+  _sg(AMB.ocean, Math.max(0, 1-(hH-0.8)/2.2)*0.30, dt);
+  const dj = Math.hypot(player.position.x-JUNGLE.x, player.position.z-JUNGLE.z);
+  _sg(AMB.jungle, Math.max(0, 1-dj/(JUNGLE.r+3))*0.16, dt);
+  _sg(AMB.rain,  wt==="storm"?0.50:wt==="rain"?0.30:0, dt);
+  _sg(AMB.wind,  wt==="storm"?0.24:0, dt);
+  const inN = S && (S.hours>=20||S.hours<5);
+  _sg(AMB.night, inN?0.10:0, dt);
+  let fDist=999;
+  fires.forEach(f=>{ const d=Math.hypot(f.position.x-player.position.x,f.position.z-player.position.z); if(d<fDist) fDist=d; });
+  _sg(AMB.fire, Math.max(0,1-fDist/7)*0.26, dt);
+}
+
+function sfx(id){
+  if (!AC) return;
+  const t = AC.currentTime;
+  const S2 = (v,time)=>time||t;
+  function osc(type,freq,vol,atk,dec,st){
+    const o=AC.createOscillator(),g=AC.createGain(),s=st||t;
+    o.type=type; o.frequency.value=freq;
+    g.gain.setValueAtTime(0,s); g.gain.linearRampToValueAtTime(vol,s+atk);
+    g.gain.exponentialRampToValueAtTime(0.0001,s+atk+dec);
+    o.connect(g); g.connect(mG); o.start(s); o.stop(s+atk+dec+0.05);
+  }
+  function noiseB(dur,freq,q,vol,st){
+    const s=st||t, b=AC.createBuffer(1,Math.floor(AC.sampleRate*dur),AC.sampleRate);
+    const d=b.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
+    const src=AC.createBufferSource(),f=AC.createBiquadFilter(),g=AC.createGain();
+    src.buffer=b; f.type="bandpass"; f.frequency.value=freq; f.Q.value=q;
+    g.gain.setValueAtTime(vol,s); g.gain.exponentialRampToValueAtTime(0.0001,s+dur);
+    src.connect(f); f.connect(g); g.connect(mG); src.start(s);
+  }
+  switch(id){
+    case "chop":
+      { const o=AC.createOscillator(),g=AC.createGain(); o.type="square";
+        o.frequency.setValueAtTime(140,t); o.frequency.exponentialRampToValueAtTime(55,t+0.13);
+        g.gain.setValueAtTime(0.42,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.2);
+        o.connect(g); g.connect(mG); o.start(t); o.stop(t+0.24); }
+      noiseB(0.14,750,1.4,0.28); break;
+    case "stone": noiseB(0.22,950,2.8,0.55); break;
+    case "pickup":
+      [0, 0.09].forEach((off,i)=>osc("sine",[440,660][i],0.20,0.02,0.16,t+off)); break;
+    case "eat":    osc("sine",300,0.17,0.01,0.15); break;
+    case "drink":
+      [0,0.10,0.20].forEach(off=>osc("sine",190+Math.random()*55,0.14,0.02,0.1,t+off)); break;
+    case "craft":
+      [0,0.07,0.14].forEach((off,i)=>osc("sine",[330,415,495][i],0.22,0.03,0.40,t+off)); break;
+    case "fire_lit":
+      [0,0.06,0.13].forEach((off,i)=>{
+        const freq=[200,255,320][i], o=AC.createOscillator(), f=AC.createBiquadFilter(), g=AC.createGain();
+        const s=t+off; o.type="sawtooth"; o.frequency.value=freq;
+        f.type="lowpass"; f.frequency.value=500;
+        g.gain.setValueAtTime(0,s); g.gain.linearRampToValueAtTime(0.22,s+0.05);
+        g.gain.exponentialRampToValueAtTime(0.0001,s+0.6);
+        o.connect(f); f.connect(g); g.connect(mG); o.start(s); o.stop(s+0.7);
+      }); break;
+    case "danger":
+      { const o=AC.createOscillator(),f=AC.createBiquadFilter(),g=AC.createGain();
+        o.type="sawtooth"; o.frequency.value=62; f.type="lowpass"; f.frequency.value=150;
+        g.gain.setValueAtTime(0.26,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.48);
+        o.connect(f); f.connect(g); g.connect(mG); o.start(t); o.stop(t+0.52); } break;
+    case "discover":
+      [0,0.12,0.24].forEach((off,i)=>osc("sine",[523,659,784][i],0.24,0.04,0.52,t+off)); break;
+    case "thunder":
+      { const b=AC.createBuffer(1,Math.floor(AC.sampleRate*1.5),AC.sampleRate);
+        const d=b.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
+        const s=AC.createBufferSource(),f=AC.createBiquadFilter(),g=AC.createGain();
+        s.buffer=b; f.type="lowpass"; f.frequency.value=160;
+        g.gain.setValueAtTime(0.78,t); g.gain.exponentialRampToValueAtTime(0.0001,t+1.6);
+        s.connect(f); f.connect(g); g.connect(mG); s.start(t); } break;
+    case "win":
+      [0,0.19,0.38,0.57].forEach((off,i)=>osc("sine",[523,659,784,1046][i],0.28,0.05,1.2,t+off)); break;
+  }
+}
+// =================== END AUDIO ===================
+
 const clock = new THREE.Clock();
 const vel = { x: 0, z: 0 };
 let walkT = 0, running = false, dead = false;
@@ -1530,9 +1685,15 @@ function update(dt){
     rainFillT += dt;
     if (rainFillT > 15){
       rainFillT = 0; S.bottle++;
-      toast(`🍼 Der Regen füllt deine Flasche (${S.bottle}/3).`);
+      sfx("drink"); toast(`🍼 Der Regen füllt deine Flasche (${S.bottle}/3).`);
     }
   } else rainFillT = 0;
+
+  // Donner bei Sturm
+  if (S.weather.type === "storm"){
+    thunderTimer -= dt;
+    if (thunderTimer <= 0){ sfx("thunder"); thunderTimer = 7 + Math.random()*12; }
+  } else thunderTimer = 7 + Math.random()*8;
 
   // Sturm zehrt — außer im Schutz von Unterschlupf oder Höhle
   if (S.weather.type === "storm"){
@@ -1553,6 +1714,7 @@ function update(dt){
     }
   }
 
+  updateAmbience(dt);
   updateSky();
   updateBars();
   refreshActions();
@@ -1605,7 +1767,7 @@ function startGame(state){
 function winGame(){
   running = false;
   clearSave();
-  $("winSub").textContent = `Nach ${S.day} ${S.day===1?"Tag":"Tagen"} entkommen`;
+  sfx("win"); $("winSub").textContent = `Nach ${S.day} ${S.day===1?"Tag":"Tagen"} entkommen`;
   $("win").style.display = "flex";
 }
 function gameOver(){
