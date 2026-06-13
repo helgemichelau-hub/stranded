@@ -1377,15 +1377,18 @@ function _buildAmbient(){
   for(let i=0;i<nd.length;i++) nd[i]=Math.random()*2-1;
   // Jeder Bus in eigenem IIFE, damit keine Variablenkollisionen
   function ns(){ const s=AC.createBufferSource(); s.buffer=nb; s.loop=true; s.start(); return s; }
-  // Ocean
+  // Ocean: innerG für LFO, outerG für _sg — kein Leck
   (function(){
-    const s=ns(),f1=AC.createBiquadFilter(),f2=AC.createBiquadFilter(),g=AC.createGain();
+    const s=ns(),f1=AC.createBiquadFilter(),f2=AC.createBiquadFilter();
     f1.type="lowpass"; f1.frequency.value=270; f1.Q.value=0.7;
     f2.type="highpass"; f2.frequency.value=55;
+    const innerG=AC.createGain(), outerG=AC.createGain();
+    innerG.gain.value=1.0;
     const lfo=AC.createOscillator(),lg=AC.createGain();
-    lfo.frequency.value=0.13; lg.gain.value=0.13; lfo.start();
-    s.connect(f1); f1.connect(f2); f2.connect(g); g.connect(mG);
-    lfo.connect(lg); lg.connect(g.gain); g.gain.value=0; AMB.ocean=g;
+    lfo.frequency.value=0.13; lg.gain.value=0.18; lfo.start();
+    lfo.connect(lg); lg.connect(innerG.gain);
+    s.connect(f1); f1.connect(f2); f2.connect(innerG); innerG.connect(outerG); outerG.connect(mG);
+    outerG.gain.value=0; AMB.ocean=outerG;
   })();
   // Rain
   (function(){
@@ -1404,14 +1407,19 @@ function _buildAmbient(){
     lfo.connect(lg); lg.connect(f.frequency);
     s.connect(f); f.connect(g); g.connect(mG); g.gain.value=0; AMB.wind=g;
   })();
-  // Grillen/Nacht
+  // Nacht: weicher Bandpass-Noise statt Ton — zwei separate Gains
   (function(){
-    const o=AC.createOscillator(),g=AC.createGain();
-    o.type="sine"; o.frequency.value=4100;
-    const lfo=AC.createOscillator(),lg=AC.createGain();
-    lfo.frequency.value=15; lg.gain.value=0.04; lfo.start();
-    lfo.connect(lg); lg.connect(g.gain);
-    o.connect(g); g.connect(mG); g.gain.value=0; AMB.night=g; o.start();
+    const s=ns(), fHi=AC.createBiquadFilter(), fLo=AC.createBiquadFilter();
+    fHi.type="highpass"; fHi.frequency.value=1200;
+    fLo.type="lowpass";  fLo.frequency.value=3000;
+    const outerG=AC.createGain(); outerG.gain.value=0;
+    s.connect(fHi); fHi.connect(fLo); fLo.connect(outerG); outerG.connect(mG);
+    AMB.night=outerG;
+    // Zusätzlich: tiefes Grillensummen um 600 Hz
+    const s2=ns(), fB=AC.createBiquadFilter(), gB=AC.createGain();
+    fB.type="bandpass"; fB.frequency.value=600; fB.Q.value=4;
+    gB.gain.value=0;
+    s2.connect(fB); fB.connect(gB); gB.connect(mG); AMB.nightLow=gB;
   })();
   // Feuer
   (function(){
@@ -1444,7 +1452,8 @@ function updateAmbience(dt){
   _sg(AMB.rain,   wt==="storm"?0.50:wt==="rain"?0.30:0, dt);
   _sg(AMB.wind,   wt==="storm"?0.24:0, dt);
   const inN = S && (S.hours>=20||S.hours<5);
-  _sg(AMB.night,  inN?0.10:0, dt);
+  _sg(AMB.night,  inN?0.08:0, dt);
+  if(AMB.nightLow) _sg(AMB.nightLow, inN?0.06:0, dt);
   let fDist=999;
   fires.forEach(f=>{
     const d=Math.hypot(f.position.x-player.position.x,f.position.z-player.position.z);
