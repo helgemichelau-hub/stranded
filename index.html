@@ -130,6 +130,7 @@
     <button id="act2" class="actbtn sec" style="display:none"></button>
     <button id="act1" class="actbtn" style="display:none"></button>
     <div id="menurow">
+      <button id="btnMute" class="round">🔊</button>
       <button id="btnCraft" class="round">🛠️</button>
       <button id="btnInv" class="round">🎒</button>
     </div>
@@ -903,6 +904,14 @@ function updateBars(){
 function openSheet(id){ closeSheets(); $(id).style.display = "block"; }
 function closeSheets(){ $("invSheet").style.display="none"; $("craftSheet").style.display="none"; }
 document.querySelectorAll("[data-close]").forEach(b => b.onclick = closeSheets);
+$("btnMute").addEventListener("pointerdown", e => {
+  e.preventDefault();
+  startAudio().then(() => {
+    audioOn = !audioOn;
+    $("btnMute").textContent = audioOn ? "🔊" : "🔇";
+    if (mG) mG.gain.value = audioOn ? 0.85 : 0;
+  });
+});
 $("btnInv").addEventListener("pointerdown", e => { e.preventDefault(); renderInv(); openSheet("invSheet"); });
 $("btnCraft").addEventListener("pointerdown", e => { e.preventDefault(); renderCraft(); openSheet("craftSheet"); });
 
@@ -928,7 +937,7 @@ function renderInv(){
 function useItem(id){
   const it = ITEMS[id];
   if (id === "flasche"){
-    if (S.bottle > 0){ S.bottle--; S.thirst = Math.min(100, S.thirst + 30); toast("💧 Du trinkst aus der Flasche."); }
+    if (S.bottle > 0){ S.bottle--; S.thirst = Math.min(100, S.thirst + 30); sfx("drink"); toast("💧 Du trinkst aus der Flasche."); }
     else toast("Die Flasche ist leer — fülle sie am Teich.");
     renderInv(); return;
   }
@@ -936,6 +945,7 @@ function useItem(id){
   take(id, 1);
   S.hunger = Math.min(100, S.hunger + (it.eat.hunger||0));
   S.thirst = Math.min(100, S.thirst + (it.eat.thirst||0));
+  sfx("eat");
   if (it.eat.risk && Math.random() < 0.35){
     S.health = Math.max(1, S.health - 10);
     toast("🤢 Der rohe Fisch bekommt dir nicht …");
@@ -964,15 +974,15 @@ function renderCraft(){
 function craft(r){
   if (!canAfford(r.cost)) return;
   for (const k in r.cost) take(k, r.cost[k]);
-  if (r.id === "speer"){ give("speer"); toast("🔱 Speer hergestellt! Fische am Meeresufer."); }
-  else if (r.id === "axt"){ give("axt"); toast("🪓 Axt hergestellt! Holzfällen geht jetzt deutlich schneller."); }
-  else if (r.id === "fackel"){ give("fackel"); toast("🕯️ Fackel gefertigt — damit kannst du die Höhle erkunden."); }
+  if (r.id === "speer"){ give("speer"); sfx("craft"); toast("🔱 Speer hergestellt! Fische am Meeresufer."); }
+  else if (r.id === "axt"){ give("axt"); sfx("craft"); toast("🪓 Axt hergestellt! Holzfällen geht jetzt deutlich schneller."); }
+  else if (r.id === "fackel"){ give("fackel"); sfx("craft"); toast("🕯️ Fackel gefertigt — damit kannst du die Höhle erkunden."); }
   else if (r.id === "feuer"){
     const f = shadowify(mkFire());
     placeOnTerrain(f, player.position.x + 1.4, player.position.z + 1.0);
     scene.add(f); fires.push(f);
     S.fires.push({ x:f.position.x, z:f.position.z });
-    toast("🔥 Lagerfeuer entzündet!");
+    sfx("fire_lit"); toast("🔥 Lagerfeuer entzündet!");
   }
   else if (r.id === "schutz"){
     const sh = shadowify(mkShelter());
@@ -1122,7 +1132,7 @@ function computeActions(){
 
   const coco = nearest(coconuts, 1.8);
   if (coco) acts.push({ at:coco.position, label:"🥥 Aufheben", run(){
-    give("kokos", 1);
+    sfx("pickup"); give("kokos", 1);
     scene.remove(coco); coconuts.splice(coconuts.indexOf(coco), 1);
     toast("🥥 +1 Kokosnuss");
     setTimeout(() => { // an anderer Stelle nachwachsen lassen
@@ -1157,10 +1167,10 @@ function computeActions(){
     startGather("Anpirschen …", 1.4, () => {
       if (Math.random() < 0.55){
         give("fleischRoh", 3); boar.userData.dead = 120; boar.visible = false;
-        sfx("pickup"); toast("🐗 Erlegt! +3 rohes Fleisch — brate es am Feuer.");
+        sfx("pickup"); sfx("pickup"); toast("🐗 Erlegt! +3 rohes Fleisch — brate es am Feuer.");
       } else {
         S.health = Math.max(1, S.health - 12);
-        toast("💢 Das Wildschwein erwischt dich! −12 Gesundheit");
+        sfx("danger"); toast("💢 Das Wildschwein erwischt dich! −12 Gesundheit");
         const s = jungleSpot(); if (s){ boar.position.set(s.x, terrainH(s.x, s.z), s.z); }
       }
       saveGame();
@@ -1344,103 +1354,111 @@ function updateSky(){
 
 // ---------- Spielschleife ----------
 
-// =================== AUDIO SYSTEM ===================
-let AC = null, mG = null;
+
+// =================== AUDIO SYSTEM v2 ===================
+let AC = null, mG = null, audioOn = true;
 const AMB = {};
 let thunderTimer = 14;
 
-document.addEventListener("pointerdown", function(){
-  if (!AC){
-    try {
-      AC = new (window.AudioContext || window.webkitAudioContext)();
-      _buildAmbient();
-    } catch(e){}
-  }
-  if (AC && AC.state === "suspended") AC.resume();
-}, { capture:true });
+// Zuverlässiger Start direkt aus User-Geste (async wegen iOS resume-Pflicht)
+async function startAudio(){
+  try {
+    if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
+    if (AC.state === "suspended") await AC.resume();
+    if (!mG) _buildAmbient();
+  } catch(e){ console.warn("Audio:", e); }
+}
 
 function _buildAmbient(){
   mG = AC.createGain(); mG.gain.value = 0.85; mG.connect(AC.destination);
   const sr = AC.sampleRate;
   const nb = AC.createBuffer(1, sr*8, sr);
   const nd = nb.getChannelData(0);
-  for(let i=0;i<nd.length;i++) nd[i] = Math.random()*2-1;
-  function ns(){ const s=AC.createBufferSource(); s.buffer=nb; s.loop=true; s.start(0); return s; }
-
-  // Ocean: lowpass noise + LFO Wellenrhythmus
-  const oc={s:ns(),f1:AC.createBiquadFilter(),f2:AC.createBiquadFilter(),g:AC.createGain()};
-  oc.f1.type="lowpass"; oc.f1.frequency.value=270; oc.f1.Q.value=0.7;
-  oc.f2.type="highpass"; oc.f2.frequency.value=55;
-  const ocLfo=AC.createOscillator(), ocLg=AC.createGain();
-  ocLfo.frequency.value=0.13; ocLg.gain.value=0.13; ocLfo.start();
-  oc.s.connect(oc.f1); oc.f1.connect(oc.f2); oc.f2.connect(oc.g); oc.g.connect(mG);
-  ocLfo.connect(ocLg); ocLg.connect(oc.g.gain); oc.g.gain.value=0; AMB.ocean=oc.g;
-
-  // Rain: highpass noise
-  const rn={s:ns(),f1:AC.createBiquadFilter(),f2:AC.createBiquadFilter(),g:AC.createGain()};
-  rn.f1.type="highpass"; rn.f1.frequency.value=2400;
-  rn.f2.type="lowpass"; rn.f2.frequency.value=9000;
-  rn.s.connect(rn.f1); rn.f1.connect(rn.f2); rn.f2.connect(rn.g); rn.g.connect(mG);
-  rn.g.gain.value=0; AMB.rain=rn.g;
-
-  // Wind: bandpass + langsamer LFO
-  const wn={s:ns(),f:AC.createBiquadFilter(),g:AC.createGain()};
-  wn.f.type="bandpass"; wn.f.frequency.value=420; wn.f.Q.value=0.35;
-  const wnLfo=AC.createOscillator(), wnLg=AC.createGain();
-  wnLfo.frequency.value=0.08; wnLg.gain.value=180; wnLfo.start();
-  wnLfo.connect(wnLg); wnLg.connect(wn.f.frequency);
-  wn.s.connect(wn.f); wn.f.connect(wn.g); wn.g.connect(mG);
-  wn.g.gain.value=0; AMB.wind=wn.g;
-
-  // Nacht (Grillen): Sinus + Tremolo
-  const nt={o:AC.createOscillator(),g:AC.createGain()};
-  nt.o.type="sine"; nt.o.frequency.value=4100;
-  const ntLfo=AC.createOscillator(), ntLg=AC.createGain();
-  ntLfo.frequency.value=15; ntLg.gain.value=0.04; ntLfo.start();
-  ntLfo.connect(ntLg); ntLg.connect(nt.g.gain);
-  nt.o.connect(nt.g); nt.g.connect(mG);
-  nt.g.gain.value=0; AMB.night=nt.g; nt.o.start();
-
-  // Feuer: bandpass noise
-  const fi={s:ns(),f:AC.createBiquadFilter(),g:AC.createGain()};
-  fi.f.type="bandpass"; fi.f.frequency.value=340; fi.f.Q.value=0.9;
-  fi.s.connect(fi.f); fi.f.connect(fi.g); fi.g.connect(mG);
-  fi.g.gain.value=0; AMB.fire=fi.g;
-
-  // Dschungel: moduliertes bandpass noise
-  const jg={s:ns(),f:AC.createBiquadFilter(),g:AC.createGain()};
-  jg.f.type="bandpass"; jg.f.frequency.value=1800; jg.f.Q.value=0.5;
-  const jgLfo=AC.createOscillator(), jgLg=AC.createGain();
-  jgLfo.frequency.value=0.22; jgLg.gain.value=600; jgLfo.start();
-  jgLfo.connect(jgLg); jgLg.connect(jg.f.frequency);
-  jg.s.connect(jg.f); jg.f.connect(jg.g); jg.g.connect(mG);
-  jg.g.gain.value=0; AMB.jungle=jg.g;
+  for(let i=0;i<nd.length;i++) nd[i]=Math.random()*2-1;
+  // Jeder Bus in eigenem IIFE, damit keine Variablenkollisionen
+  function ns(){ const s=AC.createBufferSource(); s.buffer=nb; s.loop=true; s.start(); return s; }
+  // Ocean
+  (function(){
+    const s=ns(),f1=AC.createBiquadFilter(),f2=AC.createBiquadFilter(),g=AC.createGain();
+    f1.type="lowpass"; f1.frequency.value=270; f1.Q.value=0.7;
+    f2.type="highpass"; f2.frequency.value=55;
+    const lfo=AC.createOscillator(),lg=AC.createGain();
+    lfo.frequency.value=0.13; lg.gain.value=0.13; lfo.start();
+    s.connect(f1); f1.connect(f2); f2.connect(g); g.connect(mG);
+    lfo.connect(lg); lg.connect(g.gain); g.gain.value=0; AMB.ocean=g;
+  })();
+  // Rain
+  (function(){
+    const s=ns(),f1=AC.createBiquadFilter(),f2=AC.createBiquadFilter(),g=AC.createGain();
+    f1.type="highpass"; f1.frequency.value=2400;
+    f2.type="lowpass";  f2.frequency.value=9000;
+    s.connect(f1); f1.connect(f2); f2.connect(g); g.connect(mG);
+    g.gain.value=0; AMB.rain=g;
+  })();
+  // Wind
+  (function(){
+    const s=ns(),f=AC.createBiquadFilter(),g=AC.createGain();
+    f.type="bandpass"; f.frequency.value=420; f.Q.value=0.35;
+    const lfo=AC.createOscillator(),lg=AC.createGain();
+    lfo.frequency.value=0.08; lg.gain.value=180; lfo.start();
+    lfo.connect(lg); lg.connect(f.frequency);
+    s.connect(f); f.connect(g); g.connect(mG); g.gain.value=0; AMB.wind=g;
+  })();
+  // Grillen/Nacht
+  (function(){
+    const o=AC.createOscillator(),g=AC.createGain();
+    o.type="sine"; o.frequency.value=4100;
+    const lfo=AC.createOscillator(),lg=AC.createGain();
+    lfo.frequency.value=15; lg.gain.value=0.04; lfo.start();
+    lfo.connect(lg); lg.connect(g.gain);
+    o.connect(g); g.connect(mG); g.gain.value=0; AMB.night=g; o.start();
+  })();
+  // Feuer
+  (function(){
+    const s=ns(),f=AC.createBiquadFilter(),g=AC.createGain();
+    f.type="bandpass"; f.frequency.value=340; f.Q.value=0.9;
+    s.connect(f); f.connect(g); g.connect(mG); g.gain.value=0; AMB.fire=g;
+  })();
+  // Dschungel
+  (function(){
+    const s=ns(),f=AC.createBiquadFilter(),g=AC.createGain();
+    f.type="bandpass"; f.frequency.value=1800; f.Q.value=0.5;
+    const lfo=AC.createOscillator(),lg=AC.createGain();
+    lfo.frequency.value=0.22; lg.gain.value=600; lfo.start();
+    lfo.connect(lg); lg.connect(f.frequency);
+    s.connect(f); f.connect(g); g.connect(mG); g.gain.value=0; AMB.jungle=g;
+  })();
 }
 
-function _sg(gn, tgt, dt){ gn.gain.value += (tgt-gn.gain.value)*Math.min(1,dt*2.2); }
+function _sg(gn, tgt, dt){ gn.gain.value += (tgt-gn.gain.value)*Math.min(1,dt*5); }
 
 function updateAmbience(dt){
-  if (!AC || !AMB.ocean) return;
+  if (!AC || !mG || !AMB.ocean) return;
+  mG.gain.value = audioOn ? 0.85 : 0;
+  if (!audioOn) return;
   const hH = terrainH(player.position.x, player.position.z);
   const wt = (S && S.weather) ? S.weather.type : "clear";
-  _sg(AMB.ocean, Math.max(0, 1-(hH-0.8)/2.2)*0.30, dt);
+  _sg(AMB.ocean,  Math.max(0, 1-(hH-0.8)/2.2)*0.30, dt);
   const dj = Math.hypot(player.position.x-JUNGLE.x, player.position.z-JUNGLE.z);
   _sg(AMB.jungle, Math.max(0, 1-dj/(JUNGLE.r+3))*0.16, dt);
-  _sg(AMB.rain,  wt==="storm"?0.50:wt==="rain"?0.30:0, dt);
-  _sg(AMB.wind,  wt==="storm"?0.24:0, dt);
+  _sg(AMB.rain,   wt==="storm"?0.50:wt==="rain"?0.30:0, dt);
+  _sg(AMB.wind,   wt==="storm"?0.24:0, dt);
   const inN = S && (S.hours>=20||S.hours<5);
-  _sg(AMB.night, inN?0.10:0, dt);
+  _sg(AMB.night,  inN?0.10:0, dt);
   let fDist=999;
-  fires.forEach(f=>{ const d=Math.hypot(f.position.x-player.position.x,f.position.z-player.position.z); if(d<fDist) fDist=d; });
+  fires.forEach(f=>{
+    const d=Math.hypot(f.position.x-player.position.x,f.position.z-player.position.z);
+    if(d<fDist) fDist=d;
+  });
   _sg(AMB.fire, Math.max(0,1-fDist/7)*0.26, dt);
 }
 
 function sfx(id){
-  if (!AC) return;
+  if (!AC || !mG || !audioOn) return;
+  if (AC.state !== "running") { AC.resume(); return; }
   const t = AC.currentTime;
-  const S2 = (v,time)=>time||t;
   function osc(type,freq,vol,atk,dec,st){
-    const o=AC.createOscillator(),g=AC.createGain(),s=st||t;
+    const s=st||t, o=AC.createOscillator(), g=AC.createGain();
     o.type=type; o.frequency.value=freq;
     g.gain.setValueAtTime(0,s); g.gain.linearRampToValueAtTime(vol,s+atk);
     g.gain.exponentialRampToValueAtTime(0.0001,s+atk+dec);
@@ -1449,51 +1467,46 @@ function sfx(id){
   function noiseB(dur,freq,q,vol,st){
     const s=st||t, b=AC.createBuffer(1,Math.floor(AC.sampleRate*dur),AC.sampleRate);
     const d=b.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
-    const src=AC.createBufferSource(),f=AC.createBiquadFilter(),g=AC.createGain();
-    src.buffer=b; f.type="bandpass"; f.frequency.value=freq; f.Q.value=q;
+    const src=AC.createBufferSource(), flt=AC.createBiquadFilter(), g=AC.createGain();
+    src.buffer=b; flt.type="bandpass"; flt.frequency.value=freq; flt.Q.value=q;
     g.gain.setValueAtTime(vol,s); g.gain.exponentialRampToValueAtTime(0.0001,s+dur);
-    src.connect(f); f.connect(g); g.connect(mG); src.start(s);
+    src.connect(flt); flt.connect(g); g.connect(mG); src.start(s);
   }
   switch(id){
     case "chop":
       { const o=AC.createOscillator(),g=AC.createGain(); o.type="square";
         o.frequency.setValueAtTime(140,t); o.frequency.exponentialRampToValueAtTime(55,t+0.13);
-        g.gain.setValueAtTime(0.42,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.2);
-        o.connect(g); g.connect(mG); o.start(t); o.stop(t+0.24); }
+        g.gain.setValueAtTime(0.42,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.20);
+        o.connect(g); g.connect(mG); o.start(t); o.stop(t+0.25); }
       noiseB(0.14,750,1.4,0.28); break;
-    case "stone": noiseB(0.22,950,2.8,0.55); break;
-    case "pickup":
-      [0, 0.09].forEach((off,i)=>osc("sine",[440,660][i],0.20,0.02,0.16,t+off)); break;
-    case "eat":    osc("sine",300,0.17,0.01,0.15); break;
-    case "drink":
-      [0,0.10,0.20].forEach(off=>osc("sine",190+Math.random()*55,0.14,0.02,0.1,t+off)); break;
-    case "craft":
-      [0,0.07,0.14].forEach((off,i)=>osc("sine",[330,415,495][i],0.22,0.03,0.40,t+off)); break;
+    case "stone":    noiseB(0.22,950,2.8,0.55); break;
+    case "pickup":   [0,0.09].forEach((off,i)=>osc("sine",[440,660][i],0.20,0.02,0.16,t+off)); break;
+    case "eat":      osc("sine",300,0.17,0.01,0.15); break;
+    case "drink":    [0,0.10,0.20].forEach(off=>osc("sine",190+Math.random()*55,0.14,0.02,0.10,t+off)); break;
+    case "craft":    [0,0.07,0.14].forEach((off,i)=>osc("sine",[330,415,495][i],0.22,0.03,0.40,t+off)); break;
     case "fire_lit":
       [0,0.06,0.13].forEach((off,i)=>{
-        const freq=[200,255,320][i], o=AC.createOscillator(), f=AC.createBiquadFilter(), g=AC.createGain();
-        const s=t+off; o.type="sawtooth"; o.frequency.value=freq;
-        f.type="lowpass"; f.frequency.value=500;
+        const fr=[200,255,320][i], s=t+off, o=AC.createOscillator(),
+              flt=AC.createBiquadFilter(), g=AC.createGain();
+        o.type="sawtooth"; o.frequency.value=fr; flt.type="lowpass"; flt.frequency.value=500;
         g.gain.setValueAtTime(0,s); g.gain.linearRampToValueAtTime(0.22,s+0.05);
-        g.gain.exponentialRampToValueAtTime(0.0001,s+0.6);
-        o.connect(f); f.connect(g); g.connect(mG); o.start(s); o.stop(s+0.7);
+        g.gain.exponentialRampToValueAtTime(0.0001,s+0.60);
+        o.connect(flt); flt.connect(g); g.connect(mG); o.start(s); o.stop(s+0.70);
       }); break;
     case "danger":
-      { const o=AC.createOscillator(),f=AC.createBiquadFilter(),g=AC.createGain();
-        o.type="sawtooth"; o.frequency.value=62; f.type="lowpass"; f.frequency.value=150;
+      { const o=AC.createOscillator(),flt=AC.createBiquadFilter(),g=AC.createGain();
+        o.type="sawtooth"; o.frequency.value=62; flt.type="lowpass"; flt.frequency.value=150;
         g.gain.setValueAtTime(0.26,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.48);
-        o.connect(f); f.connect(g); g.connect(mG); o.start(t); o.stop(t+0.52); } break;
-    case "discover":
-      [0,0.12,0.24].forEach((off,i)=>osc("sine",[523,659,784][i],0.24,0.04,0.52,t+off)); break;
+        o.connect(flt); flt.connect(g); g.connect(mG); o.start(t); o.stop(t+0.52); } break;
+    case "discover": [0,0.12,0.24].forEach((off,i)=>osc("sine",[523,659,784][i],0.24,0.04,0.52,t+off)); break;
     case "thunder":
       { const b=AC.createBuffer(1,Math.floor(AC.sampleRate*1.5),AC.sampleRate);
         const d=b.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
-        const s=AC.createBufferSource(),f=AC.createBiquadFilter(),g=AC.createGain();
-        s.buffer=b; f.type="lowpass"; f.frequency.value=160;
-        g.gain.setValueAtTime(0.78,t); g.gain.exponentialRampToValueAtTime(0.0001,t+1.6);
-        s.connect(f); f.connect(g); g.connect(mG); s.start(t); } break;
-    case "win":
-      [0,0.19,0.38,0.57].forEach((off,i)=>osc("sine",[523,659,784,1046][i],0.28,0.05,1.2,t+off)); break;
+        const src=AC.createBufferSource(),flt=AC.createBiquadFilter(),g=AC.createGain();
+        src.buffer=b; flt.type="lowpass"; flt.frequency.value=160;
+        g.gain.setValueAtTime(0.78,t); g.gain.exponentialRampToValueAtTime(0.0001,t+1.60);
+        src.connect(flt); flt.connect(g); g.connect(mG); src.start(t); } break;
+    case "win":      [0,0.19,0.38,0.57].forEach((off,i)=>osc("sine",[523,659,784,1046][i],0.28,0.05,1.20,t+off)); break;
   }
 }
 // =================== END AUDIO ===================
@@ -1685,7 +1698,7 @@ function update(dt){
     rainFillT += dt;
     if (rainFillT > 15){
       rainFillT = 0; S.bottle++;
-      sfx("drink"); toast(`🍼 Der Regen füllt deine Flasche (${S.bottle}/3).`);
+      sfx("drink"); sfx("drink"); toast(`🍼 Der Regen füllt deine Flasche (${S.bottle}/3).`);
     }
   } else rainFillT = 0;
 
@@ -1708,8 +1721,11 @@ function update(dt){
     gather.until -= dt;
     $("progBar").firstElementChild.style.width = (100*(1 - gather.until/gather.total)) + "%";
     if (gather.until <= 0){
+      const _lbl = gather.label;
       const d = gather.done; cancelGather();
       S.energy = Math.max(0, S.energy - 2.5); // Arbeiten kostet Kraft
+      const _smap={"Holz sammeln …":"chop","Stein abbauen …":"stone","Untersuchen …":"pickup","Pflücken …":"pickup","Ernten …":"pickup","Anschleichen …":"pickup","Trinken …":"drink","Erkunden …":"discover","Spähen …":"discover","Braten …":"pickup","Rumpf bauen …":"craft","Mast errichten …":"craft","Verstauen …":"craft"};
+      const _sid = _smap[_lbl]; if(_sid) sfx(_sid);
       d();
     }
   }
