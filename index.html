@@ -113,6 +113,7 @@
   <div id="topbar">
     <div id="stats" class="panel">
       <div class="stat"><span>❤️</span><div class="bar" id="bHealth"><i style="width:100%"></i></div></div>
+      <div id="poisonStat" style="display:none;align-items:center;gap:6px;"><span style="font-size:13px">🐍</span><span style="font-size:11px;color:#8fe89a;font-weight:600">Vergiftet</span></div>
       <div class="stat"><span>🍖</span><div class="bar" id="bHunger"><i style="width:100%"></i></div></div>
       <div class="stat"><span>💧</span><div class="bar" id="bThirst"><i style="width:100%"></i></div></div>
       <div class="stat"><span>⚡</span><div class="bar" id="bEnergy"><i style="width:100%"></i></div></div>
@@ -137,7 +138,8 @@
   </div>
 
   <div id="progWrap"><div id="progLabel"></div><div id="progBar"><i></i></div></div>
-  <div id="toasts"></div>
+  <div id="shipHUD" style="display:none;position:fixed;top:40%;left:50%;transform:translate(-50%,-50%);background:rgba(10,20,30,.88);color:#ffe27a;padding:14px 26px;border-radius:18px;font-size:19px;font-weight:800;text-align:center;pointer-events:none;z-index:9;border:2px solid rgba(255,226,122,.4);">🚢 EIN SCHIFF!<br><span id="shipCnt" style="font-size:13px;font-weight:500;opacity:.85"></span></div>
+<div id="toasts"></div>
 
   <div id="invSheet" class="sheet panel">
     <h2>Rucksack <button data-close>×</button></h2>
@@ -210,7 +212,10 @@ const ITEMS = {
   flasche: { nm:"Flasche",    em:"🍼" },
   speer:   { nm:"Speer",      em:"🔱" },
   axt:     { nm:"Axt",        em:"🪓" },
-  segel:   { nm:"Segeltuch",  em:"⛵" },
+  segel:        { nm:"Segeltuch",    em:"⛵" },
+  palmzweig:    { nm:"Palmzweige",   em:"🌿" },
+  leuchtrakete: { nm:"Leuchtrakete", em:"🚀" },
+  heilkraut:    { nm:"Heilkraut",    em:"🌱", eat:{hunger:5, cure:true} },
   banane:  { nm:"Banane",     em:"🍌", eat:{hunger:14} },
   fleischRoh:{ nm:"Rohes Fleisch", em:"🥩" },
   fleischGeb:{ nm:"Gebr. Fleisch", em:"🍖", eat:{hunger:45} },
@@ -239,6 +244,7 @@ function freshState(){
     health:100, hunger:100, thirst:100, energy:100,
     px: 8, pz: 42,
     cave: 0, peak: 0, driftN: 0,
+    shipCD: 95, poison: 0, snakeCD: 60,
     weather: { type:"clear", t: 8 },
     inv: {},
     bottle: 0,
@@ -643,7 +649,10 @@ function setWeather(type, hours){
   if (type === prev) return;
   if (type === "rain")  toast("🌧️ Regen zieht auf …");
   else if (type === "storm") toast("⛈️ Ein Sturm! Such Schutz im Unterschlupf!", 3600);
-  else toast("☀️ Der Himmel klart auf.");
+  else {
+    toast("☀️ Der Himmel klart auf.");
+    if (prev === "storm" && Math.random() < 0.45) setTimeout(triggerFlood, 3500);
+  }
 }
 
 // ---------- Aktions-Markierung (pulsierender Ring) ----------
@@ -744,6 +753,50 @@ const caveG = new THREE.Group();
   caveG.position.set(CAVE.x, terrainH(CAVE.x, CAVE.z), CAVE.z);
   scene.add(caveG);
 })();
+
+
+// -------- Schiff (Ereignis) --------
+function mkShip(){
+  const g = new THREE.Group();
+  const hull = new THREE.Mesh(new THREE.BoxGeometry(1.6,0.4,5.5), mat(0xf0ece4));
+  hull.position.y=0.25; g.add(hull);
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.2,0.7,2.0), mat(0xd4c9b0));
+  cabin.position.set(0,0.65,-0.6); g.add(cabin);
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.07,4.5,5), mat(0x7a5a2a));
+  mast.position.y=2.7; g.add(mast);
+  const sail = new THREE.Mesh(new THREE.PlaneGeometry(2.0,2.8),
+    new THREE.MeshLambertMaterial({color:0xf4eed8, side:THREE.DoubleSide}));
+  sail.position.set(0,2.0,0.3); g.add(sail);
+  g.scale.setScalar(3.0); return g;
+}
+const shipMesh = mkShip();
+shipMesh.visible=false; shipMesh.position.y=CFG.waterLevel+0.4; scene.add(shipMesh);
+let shipRealTimer=0;
+
+// -------- Palmzweige --------
+function mkFrond(){
+  const g=new THREE.Group();
+  const l=new THREE.Mesh(new THREE.PlaneGeometry(0.9,0.28),
+    new THREE.MeshLambertMaterial({color:0x5ea54b,side:THREE.DoubleSide}));
+  l.rotation.x=-0.35; l.position.y=0.06; g.add(l);
+  const l2=l.clone(); l2.rotation.y=Math.PI*0.6; g.add(l2); return g;
+}
+const fronds=[];
+scatter(fronds, mkFrond, 10, 1.2, 3.2, "frond");
+
+// -------- Heilkraut --------
+function mkHerb(){
+  const g=new THREE.Group();
+  const st=new THREE.Mesh(new THREE.CylinderGeometry(0.03,0.03,0.20,4), mat(0x3a7a2a));
+  st.position.y=0.10; g.add(st);
+  for(let i=0;i<3;i++){
+    const l=new THREE.Mesh(new THREE.SphereGeometry(0.10,4,3), mat(0x5aaa3a));
+    l.position.set(Math.cos(i*Math.PI*2/3)*0.12,0.20,Math.sin(i*Math.PI*2/3)*0.12);
+    l.scale.set(1.6,0.55,0.8); g.add(l);
+  } return g;
+}
+const herbs=[];
+scatter(herbs, mkHerb, 6, 6.0, 14.0, "herb");
 
 // ---------- Floß-Bauplatz (Südstrand) ----------
 const RAFT = { x: 10, z: 51 };
@@ -862,6 +915,7 @@ function spawnDrift(){
     if (!S.found.messer)  pool.push("messer");
     if (!S.found.flasche) pool.push("flasche");
     if (!S.found.segel && (S.raft||0) >= 1) pool.push("segel", "segel"); // doppelt gewichtet
+    if (S.day>=5 && !S.found.kiste) pool.push("kiste","kiste");
     pool.push("konserve", "seil", "planke");
     item = pool[Math.floor(Math.random()*pool.length)];
   }
@@ -943,6 +997,10 @@ function useItem(id){
   }
   if (!it.eat) return;
   take(id, 1);
+  if (it.eat.cure){
+    S.poison=0; take(id,1);
+    toast("🌱 Heilkraut neutralisiert das Gift!"); sfx("pickup"); renderInv(); return;
+  }
   S.hunger = Math.min(100, S.hunger + (it.eat.hunger||0));
   S.thirst = Math.min(100, S.thirst + (it.eat.thirst||0));
   sfx("eat");
@@ -1025,6 +1083,17 @@ window.addEventListener("keyup",   e => keys[e.key.toLowerCase()] = false);
 
 // ---------- Aktionen ----------
 let gather = null; // { until, total, label, done }
+function triggerFlood(){
+  toast("🌊 Eine Flutwelle überschwemmt den Strand!", 4000);
+  sfx("thunder");
+  drifts.forEach(d=>scene.remove(d)); drifts.length=0;
+  if((S.raft||0)>0 && (S.raft||0)<3){
+    S.raft=Math.max(0,(S.raft||0)-1); updateRaftMesh();
+    setTimeout(()=>toast("🛶 Die Welle hat dein Floß beschädigt!",3500),2000);
+  }
+  setTimeout(()=>{ spawnDrift(); if(Math.random()<0.65) spawnDrift(); },4200);
+  saveGame();
+}
 function startGather(label, secs, done){
   if (gather) return;
   gather = { until: secs, total: secs, label, done };
@@ -1090,6 +1159,10 @@ function computeActions(){
       scene.remove(dft); drifts.splice(drifts.indexOf(dft), 1);
       if (it === "messer"){ give("messer"); S.found.messer = true; toast("🔪 Ein Messer! Du sammelst nun schneller."); }
       else if (it === "flasche"){ give("flasche"); S.found.flasche = true; toast("🍼 Eine Flasche! Fülle sie am Teich."); }
+      else if (it === "kiste"){
+        give("leuchtrakete"); S.found.kiste=true;
+        toast("📦 Militärkoffer! Eine Leuchtrakete — dein letztes Ass.", 5000);
+      }
       else if (it === "segel"){
         if (S.found.segel || has("segel") || (S.raft||0) >= 2){
           give("faser", 3); toast("🪢 Ein altes Tuch — du zerlegst es zu 3 Fasern.");
@@ -1220,6 +1293,48 @@ function computeActions(){
     }});
   }
 
+  // 🌿 Palmzweige sammeln
+  const frond = nearest(fronds, 2.2);
+  if (frond) acts.push({ at:frond.position, label:"🌿 Palmzweige nehmen", run(){
+    sfx("pickup"); give("palmzweig",2);
+    scene.remove(frond); fronds.splice(fronds.indexOf(frond),1);
+    toast("🌿 +2 Palmzweige — für ein Rauchsignal");
+    setTimeout(()=>{ const s=randSpot(1.2,3.2); if(s){ const o=mkFrond(); placeOnTerrain(o,s.x,s.z); scene.add(o); fronds.push(o); } },90000);
+    saveGame();
+  }});
+
+  // 🌱 Heilkraut am Berg
+  const herb = nearest(herbs, 2.0);
+  if (herb) acts.push({ at:herb.position, label:"🌱 Heilkraut ernten", run(){
+    sfx("pickup"); give("heilkraut",1);
+    scene.remove(herb); herbs.splice(herbs.indexOf(herb),1);
+    toast("🌱 Heilkraut — heilt Vergiftung (Rucksack öffnen)");
+    setTimeout(()=>{ const s=randSpot(6.0,14.0); if(s){ const o=mkHerb(); placeOnTerrain(o,s.x,s.z); scene.add(o); herbs.push(o); } },120000);
+    saveGame();
+  }});
+
+  // 🚢 Rauchsignal (Schiff sichtbar + Feuer + Palmzweige)
+  if (shipMesh.visible && has("palmzweig") && (S.inv.palmzweig||0)>=2){
+    const nearFire = nearest(fires, 5.5);
+    if (nearFire) acts.push({ at:nearFire.position, label:"🌿 Rauchsignal!", run(){
+      take("palmzweig",2);
+      startGather("Rauchsignal …", 3.0, ()=>{
+        sfx("discover");
+        toast("🚢 Das Schiff dreht bei — du wirst gerettet!", 5000);
+        shipMesh.visible=false; if($("shipHUD")) $("shipHUD").style.display="none";
+        setTimeout(winGameRescue, 4500);
+      });
+    }});
+  }
+
+  // 🚀 Leuchtrakete abfeuern (Schiff sichtbar + Rakete im Rucksack)
+  if (shipMesh.visible && has("leuchtrakete")) acts.push({ label:"🚀 Leuchtrakete!", run(){
+    take("leuchtrakete"); sfx("discover");
+    toast("🚀 Die Rakete leuchtet auf — das Schiff ändert Kurs!", 4500);
+    shipMesh.visible=false; if($("shipHUD")) $("shipHUD").style.display="none";
+    setTimeout(winGameRescue, 4200);
+  }});
+
   // Teich
   const dp = Math.hypot(player.position.x - CFG.pond.x, player.position.z - CFG.pond.z);
   if (dp < CFG.pond.r + 1.6){
@@ -1277,6 +1392,15 @@ function sleep(){
   S.energy = 100;
   S.hunger = Math.max(5, S.hunger - 18);
   S.thirst = Math.max(5, S.thirst - 22);
+  // 🦅 Adler stiehlt Nahrung ohne Unterschlupf
+  if (!nearest(shelters, 3.5)){
+    const foods = ["beere","banane","kokos","fischGeb","krabbeGeb"].filter(id=>has(id));
+    if (foods.length && Math.random()<0.4){
+      const stolen = foods[Math.floor(Math.random()*foods.length)];
+      take(stolen,1);
+      setTimeout(()=>toast(`🦅 Ein Adler stahl nachts dein ${ITEMS[stolen].em} ${ITEMS[stolen].nm}! Bau einen Unterschlupf.`,4500),700);
+    }
+  }
   toast(`🌅 Tag ${S.day} beginnt. Du fühlst dich erholt.`);
   saveGame();
 }
@@ -1711,6 +1835,53 @@ function update(dt){
     }
   } else rainFillT = 0;
 
+  // 🚢 Schiff spawnen
+  S.shipCD -= dt;
+  if (S.shipCD <= 0 && !shipMesh.visible){
+    const angle = Math.random()*Math.PI*2, dist = 72;
+    shipMesh.position.set(Math.cos(angle)*dist, CFG.waterLevel+0.4, Math.sin(angle)*dist);
+    shipMesh.rotation.y = -angle + Math.PI*0.5;
+    shipMesh.visible = true;
+    shipRealTimer = 90;
+    toast("🚢 Ein Schiff am Horizont! Du hast 90 Sekunden!", 4500);
+    sfx("discover");
+    S.shipCD = (S.peak ? 70 : 110) + Math.random()*50;
+  }
+  if (shipMesh.visible){
+    shipRealTimer -= dt;
+    shipMesh.position.y = CFG.waterLevel + 0.3 + Math.sin(performance.now()*0.0008)*0.25;
+    const cnt = Math.ceil(shipRealTimer);
+    if ($("shipHUD")) {
+      $("shipHUD").style.display = "block";
+      $("shipCnt").textContent = cnt+"s — Signal entzünden!";
+    }
+    if (shipRealTimer <= 0){
+      shipMesh.visible = false;
+      if ($("shipHUD")) $("shipHUD").style.display = "none";
+      toast("Das Schiff verschwindet am Horizont …", 3000);
+    }
+  } else if ($("shipHUD")) $("shipHUD").style.display = "none";
+
+  // 🐍 Schlangenencounter im Dschungel
+  {
+    const djP = Math.hypot(player.position.x-JUNGLE.x, player.position.z-JUNGLE.z);
+    S.snakeCD = Math.max(0, S.snakeCD - dt);
+    if (djP < JUNGLE.r && S.snakeCD <= 0 && moving && Math.random() < 0.004){
+      S.poison = Math.max(S.poison||0, 2 + Math.random()*1.5);
+      S.snakeCD = 200;
+      toast("🐍 Eine Giftschlange! Du wirst gebissen — deine Gesundheit sinkt!", 4500);
+      sfx("danger");
+    }
+  }
+
+  // ☠️ Giftwirkung
+  if (S.poison > 0){
+    S.poison -= dt * 24 / CFG.dayLength;
+    S.health = Math.max(1, S.health - 0.7*dt);
+    if ($("poisonStat")) $("poisonStat").style.display = "flex";
+    if (S.poison <= 0){ S.poison=0; toast("Das Gift lässt nach. Du erholt dich …",3500); }
+  } else if ($("poisonStat")) $("poisonStat").style.display = "none";
+
   // Donner bei Sturm
   if (S.weather.type === "storm"){
     thunderTimer -= dt;
@@ -1769,6 +1940,9 @@ function startGame(state){
   if (typeof S.cave !== "number") S.cave = 0;
   if (typeof S.peak !== "number") S.peak = 0;
   if (typeof S.driftN !== "number") S.driftN = 0;
+  if (typeof S.shipCD !== "number") S.shipCD = 95;
+  if (typeof S.poison !== "number") S.poison = 0;
+  if (typeof S.snakeCD !== "number") S.snakeCD = 60;
   if (!S.weather || !S.weather.type) S.weather = { type:"clear", t: 8 };
   player.position.set(typeof S.px === "number" ? S.px : 8, 0, typeof S.pz === "number" ? S.pz : 42);
   rebuildStructures();
@@ -1788,6 +1962,11 @@ function startGame(state){
     setTimeout(()=>toast("🛶 Am Südstrand liegt ein Wrack — dort beginnt deine Flucht.", 4200), 12800);
     setTimeout(()=>toast("🌑 Im Westen liegt ein dunkler Dschungel, im Norden ein Berg mit einer Höhle …", 4500), 17400);
   }
+}
+function winGameRescue(){
+  running=false; clearSave(); sfx("win");
+  $("winSub").textContent = "Durch Signal gerettet — Tag "+S.day;
+  $("win").style.display="flex";
 }
 function winGame(){
   running = false;
