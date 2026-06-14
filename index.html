@@ -1036,11 +1036,8 @@ function craft(r){
   else if (r.id === "axt"){ give("axt"); sfx("craft"); toast("🪓 Axt hergestellt! Holzfällen geht jetzt deutlich schneller."); }
   else if (r.id === "fackel"){ give("fackel"); sfx("craft"); toast("🕯️ Fackel gefertigt — damit kannst du die Höhle erkunden."); }
   else if (r.id === "feuer"){
-    const f = shadowify(mkFire());
-    placeOnTerrain(f, player.position.x + 1.4, player.position.z + 1.0);
-    scene.add(f); fires.push(f);
-    S.fires.push({ x:f.position.x, z:f.position.z });
-    sfx("fire_lit"); toast("🔥 Lagerfeuer entzündet!");
+    startGhostPlacement("feuer");
+    renderCraft(); return; // Ghost-Modus: kein saveGame hier
   }
   else if (r.id === "schutz"){
     startGhostPlacement("schutz");
@@ -1684,9 +1681,24 @@ function cancelGhost(){
   for(const k in costs) give(k,costs[k]);
   ghostState=null; toast("Abgebrochen — Materialien erstattet.");
 }
+function ghostCollision(pos){
+  // Zu nah an Büschen, Bäumen, Felsen, anderen Feuern oder Unterständen?
+  const tooClose = (arr, minD) => arr.some(o =>
+    o.visible !== false && Math.hypot(o.position.x-pos.x, o.position.z-pos.z) < minD);
+  if (tooClose(bushes, 1.4))   return "zu nah an einem Busch";
+  if (tooClose(rocks, 1.2))    return "zu nah an einem Felsen";
+  if (tooClose(palms.concat(jungleTrees), 1.5)) return "zu nah an einem Baum";
+  if (tooClose(fires, 4.0))    return "zu nah an einem anderen Feuer";
+  if (tooClose(shelters, 3.5)) return "zu nah an einem Unterschlupf";
+  if (terrainH(pos.x, pos.z) < 1.1) return "zu nah am Wasser";
+  if (terrainH(pos.x, pos.z) > 9.0) return "zu steil am Berg";
+  return null;
+}
 function confirmGhost(){
   if(!ghostState) return;
   const pos=ghostState.mesh.position.clone(), type=ghostState.type;
+  const block = ghostCollision(pos);
+  if(block){ toast("⛔ Hier nicht möglich — "+block+".", 2800); return; }
   scene.remove(ghostState.mesh); ghostState=null;
   if(type==="feuer"){
     const f=shadowify(mkFire()); f.position.copy(pos); scene.add(f); fires.push(f);
@@ -1756,8 +1768,18 @@ function update(dt){
     const gx=player.position.x+fwd.x*2.5, gz=player.position.z+fwd.z*2.5;
     ghostState.mesh.position.set(gx, terrainH(gx,gz), gz);
     ghostState.mesh.rotation.y = player.rotation.y;
-    const ps=0.9+Math.sin(performance.now()*0.005)*0.08;
+    const ps=0.92+Math.sin(performance.now()*0.005)*0.07;
     ghostState.mesh.scale.set(ps,ps,ps);
+    // Rotes Tinting wenn Platzierung blockiert
+    const blocked = ghostCollision(ghostState.mesh.position) !== null;
+    ghostState.mesh.traverse(o=>{
+      if(o.isMesh && o.material && o.material.color){
+        o.material.color.setHex(blocked ? 0xff4444 : o.userData.ghostBaseColor||0xffffff);
+        if(!o.userData.ghostBaseColor) o.userData.ghostBaseColor = o.material.color.getHex();
+      }
+    });
+    // Button-Label: grüner Haken oder rotes X
+    setBtn(act1, blocked ? "⛔ Hier nicht" : "✓ Setzen");
   }
   // Kamera folgt
   cam.position.set(player.position.x + 17, player.position.y + 19, player.position.z + 17);
@@ -1906,7 +1928,7 @@ function update(dt){
 
   // 🚢 Schiff spawnen
   S.shipCD -= dt;
-  if (S.shipCD <= 0 && !shipMesh.visible && S.day >= 2){
+  if (S.shipCD <= 0 && !shipMesh.visible && S.day >= 7){
     const angle = Math.random()*Math.PI*2, dist = 72;
     shipMesh.position.set(Math.cos(angle)*dist, CFG.waterLevel+0.4, Math.sin(angle)*dist);
     shipMesh.rotation.y = -angle + Math.PI*0.5;
