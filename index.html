@@ -160,8 +160,21 @@
   padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px);">
   <div style="color:#7a6050;font-size:11px;font-weight:700;letter-spacing:3px;
     text-transform:uppercase;margin-bottom:8px;pointer-events:none;">⛏ Höhlenerkundung</div>
-  <canvas id="caveCanvas" style="pointer-events:none;border-radius:6px;
-    box-shadow:0 0 50px rgba(255,110,20,0.18);"></canvas>
+  <div style="position:relative;">
+    <canvas id="caveCanvas" style="pointer-events:none;border-radius:6px;display:block;
+      box-shadow:0 0 50px rgba(255,110,20,0.18);"></canvas>
+    <div id="caveToasts" style="position:absolute;top:8px;left:0;right:0;
+      display:flex;flex-direction:column;align-items:center;gap:6px;
+      pointer-events:none;z-index:2;"></div>
+    <div id="caveBanner" style="display:none;position:absolute;inset:0;
+      background:rgba(4,2,1,.93);flex-direction:column;align-items:center;
+      justify-content:center;text-align:center;padding:20px;border-radius:6px;
+      pointer-events:none;">
+      <div id="caveBannerIcon" style="font-size:42px;margin-bottom:10px;"></div>
+      <div id="caveBannerText" style="color:#e8c090;font-size:15px;font-weight:700;
+        line-height:1.6;max-width:260px;"></div>
+    </div>
+  </div>
   <div style="display:flex;justify-content:space-between;align-items:center;
     width:100%;max-width:420px;padding:10px 16px;margin-top:6px;">
     <div id="caveTip" style="color:#b08060;font-size:12px;font-weight:600;
@@ -1708,67 +1721,68 @@ function confirmGhost(){
 }
 // =================== END GHOST ===================
 
-// =================== CAVE MINI-GAME ===================
+// =================== CAVE MINI-GAME v2 ===================
 let caveMode=false, caveX=1, caveY=1;
 let caveGrid=[], caveW=19, caveH=15;
 let caveItems=[], caveItemsGot=new Set();
 let caveExX=17, caveExY=13;
-let caveMoveDelay=0;
+let caveMoveDelay=0, caveLastT=0, caveParts=[];
 let caveCvs=null, caveCvCtx=null;
 
-// Maze-Generator: Recursive Backtracker (9×7 logische Zellen → 19×15 Grid)
 function generateCave(){
   const LW=9, LH=7;
   caveW=LW*2+1; caveH=LH*2+1;
   caveGrid=Array(caveH).fill(null).map(()=>Array(caveW).fill(1));
   const vis=Array(LH).fill(null).map(()=>Array(LW).fill(false));
-
   function carve(lx,ly){
-    vis[ly][lx]=true;
-    caveGrid[ly*2+1][lx*2+1]=0;
+    vis[ly][lx]=true; caveGrid[ly*2+1][lx*2+1]=0;
     const dirs=[[0,-1],[1,0],[0,1],[-1,0]].sort(()=>Math.random()-0.5);
     for(const [dx,dy] of dirs){
       const nx=lx+dx, ny=ly+dy;
       if(nx>=0&&nx<LW&&ny>=0&&ny<LH&&!vis[ny][nx]){
-        caveGrid[ly*2+1+dy][lx*2+1+dx]=0;
-        carve(nx,ny);
+        caveGrid[ly*2+1+dy][lx*2+1+dx]=0; carve(nx,ny);
       }
     }
   }
   carve(0,0);
-
-  // Sackgassen finden (genau 1 offener Nachbar)
-  const deadEnds=[];
+  const dead=[];
   for(let r=1;r<caveH-1;r++) for(let c=1;c<caveW-1;c++){
-    if(caveGrid[r][c]!==0) continue;
-    if(c===1&&r===1) continue; // start überspringen
+    if(caveGrid[r][c]!==0||( c===1&&r===1)) continue;
     const open=[[0,1],[0,-1],[1,0],[-1,0]].filter(([dc,dr])=>caveGrid[r+dr][c+dc]===0).length;
-    if(open===1) deadEnds.push({x:c,y:r});
+    if(open===1) dead.push({x:c,y:r});
   }
-  // Farthest dead end = Exit
-  deadEnds.sort((a,b)=>(Math.hypot(b.x-1,b.y-1)-Math.hypot(a.x-1,a.y-1)));
-  const exitCell=deadEnds.shift();
-  caveExX=exitCell.x; caveExY=exitCell.y;
-  caveGrid[caveExY][caveExX]=9; // 9 = exit marker
-
-  // 3 Items an restlichen Sackgassen
-  const itemDefs=[
-    {id:"konserve",em:"🥫",label:"Konserven"},
+  dead.sort((a,b)=>Math.hypot(b.x-1,b.y-1)-Math.hypot(a.x-1,a.y-1));
+  const ex=dead.shift(); caveExX=ex.x; caveExY=ex.y; caveGrid[caveExY][caveExX]=9;
+  const defs=[{id:"konserve",em:"🥫",label:"Konserve"},
     {id:"heilkraut",em:"🌱",label:"Heilkraut"},
-    {id:"holz",em:"🪵",label:"Holz ×3",amt:3},
-  ];
-  caveItems=[];
-  deadEnds.slice(0,3).forEach((de,i)=>{
-    caveItems.push({x:de.x,y:de.y,...itemDefs[i]});
-  });
+    {id:"holz",em:"🪵",label:"Holz ×3",amt:3}];
+  caveItems=dead.slice(0,3).map((de,i)=>({x:de.x,y:de.y,...defs[i]}));
+}
+
+function caveToast(msg, ms=3200){
+  const t=document.createElement("div");
+  t.style.cssText="background:rgba(18,8,3,.92);color:#e8c090;padding:8px 15px;border-radius:11px;font-size:13px;max-width:88%;text-align:center;font-weight:700;border:1px solid rgba(255,150,40,.22);pointer-events:none;";
+  t.textContent=msg;
+  const area=document.getElementById("caveToasts");
+  if(area){ area.appendChild(t);
+    setTimeout(()=>{t.style.opacity="0";t.style.transition="opacity .35s";},ms-350);
+    setTimeout(()=>t.remove(),ms);
+  }
+}
+function showCaveBanner(icon,text,ms,cb){
+  const b=document.getElementById("caveBanner");
+  if(!b){if(cb)cb();return;}
+  document.getElementById("caveBannerIcon").textContent=icon;
+  document.getElementById("caveBannerText").textContent=text;
+  b.style.display="flex";
+  setTimeout(()=>{b.style.display="none";if(cb)cb();},ms);
 }
 
 function enterCaveMode(){
   caveMode=true; caveX=1; caveY=1;
-  caveItemsGot=new Set(); caveMoveDelay=0;
+  caveItemsGot=new Set(); caveMoveDelay=0; caveParts=[];
   generateCave();
-  const ov=document.getElementById("caveOverlay");
-  ov.style.display="flex";
+  document.getElementById("caveOverlay").style.display="flex";
   if(!caveCvs){
     caveCvs=document.getElementById("caveCanvas");
     caveCvCtx=caveCvs.getContext("2d");
@@ -1776,105 +1790,151 @@ function enterCaveMode(){
       e.preventDefault(); exitCaveMode(); toast("Du verlässt die Höhle.",2500);
     });
   }
-  // Canvas-Größe
-  const maxW=Math.min(window.innerWidth*0.97,500);
-  const maxH=window.innerHeight*0.72;
-  const cs=Math.max(10,Math.min(Math.floor(maxW/caveW),Math.floor(maxH/caveH)));
-  caveCvs.width=cs*caveW; caveCvs.height=cs*caveH;
+  const VW=9, VH=7;
+  const cs=Math.floor(Math.min(window.innerWidth*0.94,400)/VW);
+  caveCvs.width=cs*VW; caveCvs.height=cs*VH;
   caveCvs.style.width=caveCvs.width+"px"; caveCvs.style.height=caveCvs.height+"px";
   sfx("discover");
-  setTimeout(()=>toast("🕯️ Deine Fackel flackert … Aschereste. Du bist nicht der Erste hier.",4500),400);
-  drawCaveFrame();
+  setTimeout(()=>caveToast("🕯️ Deine Fackel flackert … Aschereste. Du bist nicht der Erste hier.",4800),500);
+  caveLastT=performance.now();
 }
 
 function exitCaveMode(){
-  caveMode=false; document.getElementById("caveOverlay").style.display="none";
+  caveMode=false;
+  document.getElementById("caveOverlay").style.display="none";
 }
+
+function cHash(x,y){ return Math.abs(Math.sin(x*127.1+y*311.7)*43758.5453)%1; }
 
 function drawCaveFrame(){
   if(!caveCvCtx) return;
   const ctx=caveCvCtx, W=caveCvs.width, H=caveCvs.height;
-  const CS=Math.floor(W/caveW);
-  const TORCH=4.1+Math.sin(performance.now()*0.007)*0.28; // Fackel flackert
+  const VW=9, VH=7, CS=Math.floor(W/VW);
+  const now=performance.now();
+  const dt=Math.min(0.05,(now-caveLastT)*0.001); caveLastT=now;
+  const TORCH=4.0+Math.sin(now*0.007)*0.28+Math.sin(now*0.019)*0.11;
+  const vx=Math.max(0,Math.min(caveX-Math.floor(VW/2),caveW-VW));
+  const vy=Math.max(0,Math.min(caveY-Math.floor(VH/2),caveH-VH));
 
   ctx.fillStyle="#000"; ctx.fillRect(0,0,W,H);
 
-  for(let r=0;r<caveH;r++){
-    for(let c=0;c<caveW;c++){
+  for(let r=vy;r<vy+VH;r++){
+    for(let c=vx;c<vx+VW;c++){
       const dist=Math.hypot(c-caveX,r-caveY);
-      if(dist>TORCH+0.8) continue;
+      if(dist>TORCH+1.3) continue;
       const br=Math.max(0,1-dist/TORCH);
-      const sx=c*CS, sy=r*CS, cell=caveGrid[r][c];
+      const sx=(c-vx)*CS, sy=(r-vy)*CS;
+      const cell=(caveGrid[r]||[])[c]||1;
+      const hn=cHash(c,r);
 
       if(cell===1){
-        // Wand: dunkler Stein
-        ctx.fillStyle=`hsl(20,14%,${4+br*18}%)`;
+        // Steinwand mit Textur
+        ctx.fillStyle=`hsl(${18+hn*6},${10+br*7}%,${3+br*14}%)`;
         ctx.fillRect(sx,sy,CS,CS);
-        if(br>0.18&&CS>=12){
-          ctx.fillStyle=`hsla(15,10%,${8+br*9}%,0.55)`;
-          ctx.fillRect(sx+1,sy+1,CS*0.38,CS*0.28);
-          ctx.fillRect(sx+CS*0.55,sy+CS*0.5,CS*0.28,CS*0.22);
+        if(br>0.12){
+          // Stein-Faces
+          ctx.fillStyle=`hsl(${20+hn*5},${9+br*6}%,${5+br*12}%)`;
+          ctx.fillRect(sx+2,sy+2,CS-4,CS-4);
+          // Risse
+          if(cHash(c*3,r*3)>0.55 && br>0.18){
+            ctx.save(); ctx.strokeStyle=`hsla(15,6%,${3+br*4}%,0.55)`;
+            ctx.lineWidth=0.8; ctx.beginPath();
+            ctx.moveTo(sx+CS*(0.2+hn*.2), sy+CS*(0.25+hn*.1));
+            ctx.lineTo(sx+CS*(0.45+cHash(c,r*2)*.2), sy+CS*(0.55+hn*.15));
+            ctx.lineTo(sx+CS*(0.6+hn*.1), sy+CS*(0.7+cHash(c*2,r)*.1));
+            ctx.stroke(); ctx.restore();
+          }
+          // Moos an Unterkanten
+          if(cHash(c*2,r+50)>0.68 && br>0.25 && CS>=20){
+            ctx.fillStyle=`hsla(105,28%,${7+br*8}%,0.55)`;
+            ctx.fillRect(sx+2,sy+CS-Math.floor(CS*.22),CS-4,Math.floor(CS*.2));
+          }
         }
       } else {
-        // Boden: sandiges Gestein
-        const lv=7+br*24;
-        ctx.fillStyle=`hsl(35,${14+br*10}%,${lv}%)`;
+        // Boden
+        ctx.fillStyle=`hsl(${30+hn*5},${10+br*9}%,${5+br*18}%)`;
         ctx.fillRect(sx,sy,CS,CS);
-        // Bodenkörnung
-        if(br>0.22&&CS>=12){
-          ctx.fillStyle=`hsla(40,8%,${lv+5}%,0.4)`;
-          ctx.fillRect(sx+CS*0.28,sy+CS*0.6,CS*0.38,CS*0.14);
+        // Bodenmuster
+        if(br>0.22 && CS>=18){
+          ctx.fillStyle=`hsla(36,7%,${8+br*10}%,0.38)`;
+          ctx.fillRect(sx+CS*.22,sy+CS*.6,CS*.55,CS*.13);
+          if(cHash(c+30,r+30)>0.5)
+            ctx.fillRect(sx+CS*.06,sy+CS*.3,CS*.2,CS*.09);
         }
       }
-      // dünne Gitter-Linie
-      if(CS>=10){ ctx.strokeStyle="rgba(0,0,0,0.25)"; ctx.lineWidth=0.5; ctx.strokeRect(sx,sy,CS,CS); }
+      ctx.strokeStyle=`rgba(0,0,0,${0.3+br*.12})`; ctx.lineWidth=0.5;
+      ctx.strokeRect(sx+.25,sy+.25,CS-.5,CS-.5);
     }
   }
 
-  // Items
-  const fs=Math.max(9,CS-4);
+  // Items & Exit
+  const fs=Math.max(13,Math.floor(CS*.52));
   ctx.font=`${fs}px serif`; ctx.textAlign="center"; ctx.textBaseline="middle";
   for(const it of caveItems){
-    if(caveItemsGot.has(it.x+","+it.y)) continue;
+    const key=it.x+","+it.y;
+    if(caveItemsGot.has(key)) continue;
+    if(it.y<vy||it.y>=vy+VH||it.x<vx||it.x>=vx+VW) continue;
     const dist=Math.hypot(it.x-caveX,it.y-caveY);
-    if(dist>TORCH+1) continue;
-    ctx.globalAlpha=Math.min(1,0.35+(1-dist/(TORCH+1))*0.65);
-    ctx.fillText(it.em,it.x*CS+CS*.5,it.y*CS+CS*.5);
+    if(dist>TORCH+1.3) continue;
+    const sx=(it.x-vx)*CS+CS*.5, sy=(it.y-vy)*CS+CS*.5;
+    ctx.globalAlpha=Math.min(1,0.25+(1-dist/(TORCH+1.3))*.75);
+    const g=ctx.createRadialGradient(sx,sy,0,sx,sy,CS*.75);
+    g.addColorStop(0,"rgba(255,220,70,0.2)"); g.addColorStop(1,"rgba(255,200,40,0)");
+    ctx.fillStyle=g; ctx.fillRect(sx-CS*.75,sy-CS*.75,CS*1.5,CS*1.5);
+    ctx.fillText(it.em,sx,sy);
   }
-  // Exit
-  {
+  if(caveExY>=vy&&caveExY<vy+VH&&caveExX>=vx&&caveExX<vx+VW){
     const dist=Math.hypot(caveExX-caveX,caveExY-caveY);
-    if(dist<=TORCH+1){
-      ctx.globalAlpha=Math.min(1,0.35+(1-dist/(TORCH+1))*0.65);
-      ctx.fillText("⛵",caveExX*CS+CS*.5,caveExY*CS+CS*.5);
+    if(dist<=TORCH+1.3){
+      ctx.globalAlpha=Math.min(1,0.3+(1-dist/(TORCH+1.3))*.7);
+      const sx=(caveExX-vx)*CS+CS*.5, sy=(caveExY-vy)*CS+CS*.5;
+      const g=ctx.createRadialGradient(sx,sy,0,sx,sy,CS*.8);
+      g.addColorStop(0,"rgba(100,180,255,0.18)"); g.addColorStop(1,"rgba(50,150,255,0)");
+      ctx.fillStyle=g; ctx.fillRect(sx-CS*.8,sy-CS*.8,CS*1.6,CS*1.6);
+      ctx.fillText("⛵",sx,sy);
     }
   }
   ctx.globalAlpha=1;
 
-  // Spieler
-  const px=caveX*CS+CS*.5, py=caveY*CS+CS*.5, pr=Math.max(3,CS*.27);
+  // Spieler-Position im Viewport
+  const px=(caveX-vx)*CS+CS*.5, py=(caveY-vy)*CS+CS*.5;
+  const pr=Math.max(4,CS*.2);
+
+  // Fackelpartikel
+  caveParts=caveParts.filter(p=>p.life>0);
+  if(caveParts.length<10){
+    caveParts.push({x:px+(Math.random()-.5)*CS*.3,y:py-pr,
+      dx:(Math.random()-.5)*10,dy:-16-Math.random()*12,
+      life:.5+Math.random()*.4, ml:.5+Math.random()*.4});
+  }
+  caveParts.forEach(p=>{
+    p.x+=p.dx*dt; p.y+=p.dy*dt; p.life-=dt;
+    const a=Math.max(0,p.life/p.ml);
+    ctx.fillStyle=`rgba(255,${90+Math.floor(a*120)},${Math.floor(a*35)},${a*.62})`;
+    const r2=Math.max(.8,CS*.042*a);
+    ctx.beginPath(); ctx.arc(p.x,p.y,r2,0,Math.PI*2); ctx.fill();
+  });
+
   // Torch-Glow
   const tg=ctx.createRadialGradient(px,py,0,px,py,CS*TORCH);
-  tg.addColorStop(0,"rgba(255,160,40,0.2)");
-  tg.addColorStop(0.5,"rgba(255,100,10,0.07)");
+  tg.addColorStop(0,"rgba(255,145,30,0.24)");
+  tg.addColorStop(0.4,"rgba(255,95,8,0.09)");
   tg.addColorStop(1,"rgba(0,0,0,0)");
   ctx.fillStyle=tg; ctx.fillRect(0,0,W,H);
   // Spieler-Halo
-  const ph=ctx.createRadialGradient(px,py,0,px,py,pr*2.8);
-  ph.addColorStop(0,"rgba(255,180,60,0.75)");
-  ph.addColorStop(1,"rgba(255,100,0,0)");
-  ctx.fillStyle=ph; ctx.beginPath(); ctx.arc(px,py,pr*2.8,0,Math.PI*2); ctx.fill();
-  // Spieler-Kreis
+  const ph=ctx.createRadialGradient(px,py,0,px,py,pr*3.2);
+  ph.addColorStop(0,"rgba(255,185,50,0.82)"); ph.addColorStop(1,"rgba(255,100,0,0)");
+  ctx.fillStyle=ph; ctx.beginPath(); ctx.arc(px,py,pr*3.2,0,Math.PI*2); ctx.fill();
+  // Spieler
   ctx.fillStyle="#e8c090"; ctx.beginPath(); ctx.arc(px,py,pr,0,Math.PI*2); ctx.fill();
-  ctx.strokeStyle="#b87030"; ctx.lineWidth=1.2; ctx.stroke();
-  // Fackel-Symbol
-  if(CS>=14){ ctx.font=`${Math.max(8,CS-7)}px serif`; ctx.globalAlpha=0.9;
-    ctx.fillText("🕯️",px+pr*1.1,py-pr*1.1); ctx.globalAlpha=1; }
+  ctx.strokeStyle="#b07030"; ctx.lineWidth=1.5; ctx.stroke();
+  // Fackel-Icon
+  ctx.font=`${Math.max(8,Math.floor(CS*.32))}px serif`;
+  ctx.globalAlpha=.88; ctx.fillText("🕯️",px+pr*1.15,py-pr*1.1); ctx.globalAlpha=1;
   // Dunkelheits-Vignette
-  const vR=CS*(TORCH+0.9);
-  const vg=ctx.createRadialGradient(px,py,CS*TORCH*.5,px,py,vR);
-  vg.addColorStop(0,"rgba(0,0,0,0)");
-  vg.addColorStop(1,"rgba(0,0,0,0.97)");
+  const vR=CS*(TORCH+1.1);
+  const vg=ctx.createRadialGradient(px,py,CS*TORCH*.46,px,py,vR);
+  vg.addColorStop(0,"rgba(0,0,0,0)"); vg.addColorStop(1,"rgba(0,0,0,0.97)");
   ctx.fillStyle=vg; ctx.fillRect(0,0,W,H);
 }
 
@@ -1882,8 +1942,7 @@ function updateCave(dt){
   if(!caveMode) return;
   caveMoveDelay=Math.max(0,caveMoveDelay-dt);
   if(caveMoveDelay>0) return;
-  let mx=0,my=0;
-  const T=0.3;
+  let mx=0,my=0; const T=0.3;
   if(joy.dy<-T) my=-1; else if(joy.dy>T) my=1;
   if(!my){ if(joy.dx<-T) mx=-1; else if(joy.dx>T) mx=1; }
   if(keys["arrowup"]||keys["w"]){my=-1;mx=0;}
@@ -1894,33 +1953,33 @@ function updateCave(dt){
   const nx=caveX+mx, ny=caveY+my;
   if(ny<0||ny>=caveH||nx<0||nx>=caveW||caveGrid[ny][nx]===1) return;
   caveX=nx; caveY=ny; caveMoveDelay=0.17;
-  drawCaveFrame();
-  // Item?
   const key=caveX+","+caveY;
   for(const it of caveItems){
     if(it.x===caveX&&it.y===caveY&&!caveItemsGot.has(key)){
-      caveItemsGot.add(key);
-      give(it.id,it.amt||1); sfx("pickup");
-      toast(`${it.em} ${it.label} gefunden!`,3000);
+      caveItemsGot.add(key); give(it.id,it.amt||1); sfx("pickup");
+      caveToast(`${it.em} ${it.label} gefunden!`);
       if(it.id==="heilkraut")
-        setTimeout(()=>toast('📖 Verwittertes Notizbuch: „Tag 34. Das Segel ist mein letzter Versuch …"',5000),1200);
+        setTimeout(()=>caveToast('📖 „Tag 34. Das Segel ist mein letzter Versuch …"'),1400);
     }
   }
-  // Exit?
   if(caveX===caveExX&&caveY===caveExY){
-    sfx("discover");
+    sfx("discover"); S.cave=3;
     const needSail=!S.found.segel&&!has("segel")&&(S.raft||0)<2;
     if(needSail){
       give("segel"); S.found.segel=true;
-      toast("⛵ Das Segeltuch! Zusammengefaltet, unbenutzt — er hat es nie geschafft.",5500);
+      showCaveBanner("⛵","Das Segeltuch! Zusammengefaltet, unberührt — er hat es nie geschafft. Du schon.",4500,()=>{
+        saveGame(); exitCaveMode(); toast("Du kehrst ans Tageslicht zurück.",2800);
+      });
     } else {
-      give("konserve",2); toast("📦 Alter Vorrat — 2 Konserven.",3000);
+      give("konserve",2);
+      showCaveBanner("📦","Alter Vorrat — Konserven aus besseren Tagen.",3000,()=>{
+        saveGame(); exitCaveMode();
+      });
     }
-    S.cave=3; saveGame();
-    setTimeout(()=>{ exitCaveMode(); toast("Du kehrst ans Tageslicht zurück.",2800); },3200);
   }
 }
-// =================== END CAVE MINI-GAME ===================
+// =================== END CAVE MINI-GAME v2 ===================
+
 
 const clock = new THREE.Clock();
 const vel = { x: 0, z: 0 };
