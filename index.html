@@ -155,7 +155,7 @@
 
 
 <!-- ===== CAVE MINI-GAME OVERLAY ===== -->
-<div id="caveOverlay" style="display:none;position:fixed;inset:0;z-index:12;background:#080503;
+<div id="caveOverlay" style="display:none;position:fixed;inset:0;z-index:12;background:#080503;pointer-events:none;
   flex-direction:column;align-items:center;justify-content:center;
   padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px);">
   <div style="color:#7a6050;font-size:11px;font-weight:700;letter-spacing:3px;
@@ -1777,8 +1777,8 @@ function enterCaveMode(){
     });
   }
   // Canvas-Größe
-  const maxW=Math.min(window.innerWidth*0.97,420);
-  const maxH=window.innerHeight*0.64;
+  const maxW=Math.min(window.innerWidth*0.97,500);
+  const maxH=window.innerHeight*0.72;
   const cs=Math.max(10,Math.min(Math.floor(maxW/caveW),Math.floor(maxH/caveH)));
   caveCvs.width=cs*caveW; caveCvs.height=cs*caveH;
   caveCvs.style.width=caveCvs.width+"px"; caveCvs.style.height=caveCvs.height+"px";
@@ -1795,7 +1795,7 @@ function drawCaveFrame(){
   if(!caveCvCtx) return;
   const ctx=caveCvCtx, W=caveCvs.width, H=caveCvs.height;
   const CS=Math.floor(W/caveW);
-  const TORCH=4.2;
+  const TORCH=4.1+Math.sin(performance.now()*0.007)*0.28; // Fackel flackert
 
   ctx.fillStyle="#000"; ctx.fillRect(0,0,W,H);
 
@@ -2064,6 +2064,7 @@ function update(dt){
     if (f.userData.light) f.userData.light.intensity = 1.0 + Math.sin(performance.now()*0.02)*0.18;
   });
 
+  if(caveMode){ updateCave(dt); updateBars(); return; } // In Höhle: 3D-Update überspringen
   // Ozeanwellen
   const tNow = performance.now() * 0.001;
   for (let i = 0; i < oceanPos.count; i++){
@@ -2212,7 +2213,6 @@ function update(dt){
     }
   }
 
-  updateCave(dt);
   updateAmbience(dt);
   updateSky();
   updateBars();
@@ -2225,7 +2225,7 @@ function loop(){
   requestAnimationFrame(loop);
   const dt = Math.min(0.05, clock.getDelta());
   update(dt);
-  renderer.render(scene, cam);
+  if(caveMode) drawCaveFrame(); else renderer.render(scene, cam);
   acc += dt;
   if (acc > 8){ acc = 0; saveGame(); }
 }
