@@ -121,7 +121,7 @@
     <div id="rightcol">
       <div id="daytime">Tag 1 · 08:00</div>
       <div id="resbar">🪵 0 · 🪨 0 · 🌾 0</div>
-      <canvas id="mmap" width="96" height="96" style="transform:rotate(-45deg);border-radius:50%"></canvas>
+      <canvas id="mmap" width="96" height="96" style="transform:rotate(45deg);border-radius:50%"></canvas>
     </div>
   </div>
 
@@ -1433,8 +1433,8 @@ function updateSky(){
   if(caveMode){
     scene.background.setHex(0x020101);
     scene.fog.color.setHex(0x020101);
-    scene.fog.near=26; scene.fog.far=58;
-    sun.intensity=0; hemi.intensity=0.05; amb.intensity=0.10; moonLight.intensity=0;
+    scene.fog.near=8; scene.fog.far=28;
+    sun.intensity=0; hemi.intensity=0.04; amb.intensity=0.08; moonLight.intensity=0;
     return;
   }
   const h = S.hours;
@@ -1867,8 +1867,9 @@ function update(dt){
   let tx = 0, tz = 0;
   if (mlen > 0.12 && !gather){
     mx /= Math.max(1, mlen); mz /= Math.max(1, mlen);
-    // Isometrische Ausrichtung: Bildschirm-oben = Welt (-x,-z), Bildschirm-rechts = Welt (+x,-z)
-    const wx = (mx + mz) * 0.7071, wz = (mz - mx) * 0.7071;
+    // Bewegungsrichtung: Cave=direkt (N/S/E/W), Insel=isometrisch
+    const wx = caveMode ? mx : (mx + mz) * 0.7071;
+    const wz = caveMode ? mz : (mz - mx) * 0.7071;
     const sp = CFG.speed * (S.energy < 12 ? 0.55 : 1);
     tx = wx * sp; tz = wz * sp;
   }
@@ -1910,9 +1911,16 @@ function update(dt){
     // Button-Label: grüner Haken oder rotes X
     setBtn(act1, blocked ? "⛔ Hier nicht" : "✓ Setzen");
   }
-  // Kamera folgt
-  cam.position.set(player.position.x + 17, player.position.y + 19, player.position.z + 17);
-  cam.lookAt(player.position.x, player.position.y + 0.8, player.position.z);
+  // Kamera folgt (cave: top-down, insel: isometrisch)
+  if(caveMode){
+    cam.position.set(player.position.x, 22, player.position.z);
+    cam.up.set(0,0,-1);
+    cam.lookAt(player.position.x, 0, player.position.z);
+  } else {
+    cam.up.set(0,1,0);
+    cam.position.set(player.position.x + 17, player.position.y + 19, player.position.z + 17);
+    cam.lookAt(player.position.x, player.position.y + 0.8, player.position.z);
+  }
 
   // Werte
   const mul = moving ? 1.35 : 1;
