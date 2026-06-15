@@ -1,0 +1,2229 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0d1b2e">
+<title>Gestrandet — Insel</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { width:100%; height:100%; overflow:hidden; background:#0d1b2e;
+    font-family:-apple-system, "Segoe UI", Roboto, sans-serif; touch-action:none;
+    -webkit-user-select:none; user-select:none; }
+  #c { display:block; width:100%; height:100%; }
+
+  /* ---------- HUD ---------- */
+  #hud { position:fixed; inset:0; pointer-events:none; }
+  #hud .panel { pointer-events:auto; }
+
+  #topbar { position:absolute; top:env(safe-area-inset-top, 8px); left:0; right:0;
+    display:flex; justify-content:space-between; align-items:flex-start; padding:10px 12px; }
+  #rightcol { display:flex; flex-direction:column; align-items:flex-end; gap:6px; }
+  #daytime { background:rgba(10,20,30,.55); color:#f3ead2; border-radius:12px;
+    padding:6px 12px; font-size:14px; font-weight:600; letter-spacing:.3px; backdrop-filter:blur(4px); }
+  #resbar { background:rgba(10,20,30,.55); color:#f3ead2; border-radius:10px;
+    padding:4px 10px; font-size:12.5px; font-weight:600; backdrop-filter:blur(4px); }
+  #mmap { width:96px; height:96px; border-radius:12px;
+    border:1.5px solid rgba(255,255,255,.28); background:rgba(10,20,30,.5); }
+
+  #stats { display:flex; flex-direction:column; gap:5px; }
+  .stat { display:flex; align-items:center; gap:6px; }
+  .stat span { font-size:13px; width:18px; text-align:center; filter:drop-shadow(0 1px 1px rgba(0,0,0,.5)); }
+  .bar { width:96px; height:9px; background:rgba(0,0,0,.45); border-radius:5px; overflow:hidden; }
+  .bar i { display:block; height:100%; border-radius:5px; transition:width .3s; }
+  #bHealth i { background:#e05d5d; } #bHunger i { background:#e8a64e; }
+  #bThirst i { background:#52a7d8; } #bEnergy i { background:#b7d35a; }
+
+  /* ---------- Joystick ---------- */
+  #joyZone { position:absolute; left:0; bottom:0; width:46%; height:46%; pointer-events:auto; }
+  #joyBase { position:fixed; width:104px; height:104px; border-radius:50%; z-index:5; pointer-events:none;
+    background:rgba(255,255,255,.10); border:2px solid rgba(255,255,255,.22); display:none; }
+  #joyKnob { position:fixed; width:46px; height:46px; border-radius:50%; z-index:6; pointer-events:none;
+    background:rgba(255,255,255,.45); display:none; }
+
+  /* ---------- Buttons rechts ---------- */
+  #rightside { position:absolute; right:12px; bottom:calc(18px + env(safe-area-inset-bottom, 0px));
+    display:flex; flex-direction:column; align-items:flex-end; gap:10px; pointer-events:auto; }
+  .actbtn { min-width:120px; max-width:190px; padding:13px 16px; border:none; border-radius:16px;
+    background:#f0b94b; color:#3a2705; font-size:15px; font-weight:700;
+    box-shadow:0 4px 0 #b8862b, 0 6px 12px rgba(0,0,0,.35); }
+  .actbtn:active { transform:translateY(2px); box-shadow:0 2px 0 #b8862b; }
+  .actbtn.sec { background:#7fb6d9; color:#0c2a3d; box-shadow:0 4px 0 #4d7e9d, 0 6px 12px rgba(0,0,0,.35); }
+  .actbtn.sec:active { box-shadow:0 2px 0 #4d7e9d; }
+  #menurow { display:flex; gap:10px; }
+  .round { width:52px; height:52px; border-radius:50%; border:none; font-size:22px;
+    background:rgba(10,20,30,.6); color:#fff; border:1.5px solid rgba(255,255,255,.25); }
+  .round:active { background:rgba(40,60,80,.8); }
+
+  /* ---------- Fortschritt ---------- */
+  #progWrap { position:absolute; left:50%; bottom:30%; transform:translateX(-50%);
+    width:180px; display:none; text-align:center; }
+  #progLabel { color:#fff; font-size:13px; font-weight:600; text-shadow:0 1px 3px #000; margin-bottom:5px; }
+  #progBar { height:10px; background:rgba(0,0,0,.5); border-radius:5px; overflow:hidden; }
+  #progBar i { display:block; height:100%; width:0; background:#f0b94b; }
+
+  /* ---------- Toasts ---------- */
+  #toasts { position:absolute; top:18%; left:0; right:0; display:flex;
+    flex-direction:column; align-items:center; gap:6px; }
+  .toast { background:rgba(10,22,32,.82); color:#f3ead2; padding:8px 16px; border-radius:14px;
+    font-size:14px; max-width:84%; text-align:center; animation:tIn .25s ease; }
+  @keyframes tIn { from { opacity:0; transform:translateY(-8px);} to { opacity:1; transform:none;} }
+
+  /* ---------- Panels ---------- */
+  .sheet { position:absolute; left:50%; bottom:0; transform:translateX(-50%);
+    width:min(440px, 100%); max-height:62%; overflow-y:auto;
+    background:#15222e; color:#eee6cf; border-radius:18px 18px 0 0;
+    padding:16px 16px calc(20px + env(safe-area-inset-bottom,0)); display:none; }
+  .sheet h2 { font-size:17px; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; }
+  .sheet h2 button { background:none; border:none; color:#9db4c4; font-size:22px; padding:2px 8px; }
+  #invGrid { display:grid; grid-template-columns:repeat(4, 1fr); gap:10px; }
+  .invItem { background:#1f3140; border-radius:12px; padding:10px 4px; text-align:center; border:1px solid #2c4458; }
+  .invItem .em { font-size:26px; } .invItem .nm { font-size:11px; margin-top:4px; color:#c9d8e2; }
+  .invItem .ct { font-size:12px; font-weight:700; color:#f0b94b; }
+  .invItem.edible { border-color:#f0b94b66; }
+  .recipe { display:flex; justify-content:space-between; align-items:center;
+    background:#1f3140; border-radius:12px; padding:12px; margin-bottom:10px; }
+  .recipe .info b { font-size:15px; } .recipe .info div { font-size:12px; color:#9db4c4; margin-top:3px; }
+  .recipe button { border:none; border-radius:10px; padding:9px 14px; font-weight:700;
+    background:#f0b94b; color:#3a2705; }
+  .recipe button:disabled { background:#3a4d5e; color:#7c8d9b; }
+  .hint { font-size:12px; color:#8da3b3; margin-top:6px; }
+
+  /* ---------- Overlays ---------- */
+  .overlay { position:fixed; inset:0; background:linear-gradient(180deg, #0d2233, #0a1622);
+    display:flex; flex-direction:column; justify-content:center; align-items:center;
+    text-align:center; padding:28px; z-index:20; }
+  .overlay h1 { color:#f3ead2; font-size:34px; letter-spacing:1px; margin-bottom:6px; }
+  .overlay .sub { color:#f0b94b; font-size:14px; font-weight:700; letter-spacing:2px;
+    text-transform:uppercase; margin-bottom:18px; }
+  .overlay p { color:#bccddb; font-size:15px; line-height:1.55; max-width:330px; margin-bottom:26px; }
+  .overlay button { border:none; border-radius:16px; padding:15px 34px; font-size:17px; font-weight:800;
+    background:#f0b94b; color:#3a2705; box-shadow:0 5px 0 #b8862b; margin-bottom:12px; }
+  .overlay button.ghost { background:transparent; color:#9db4c4; box-shadow:none;
+    border:1.5px solid #3a5468; font-weight:600; font-size:14px; padding:11px 24px; }
+  #gameover { display:none; background:linear-gradient(180deg, #2b1212, #120a0a); }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <div id="topbar">
+    <div id="stats" class="panel">
+      <div class="stat"><span>❤️</span><div class="bar" id="bHealth"><i style="width:100%"></i></div></div>
+      <div id="poisonStat" style="display:none;align-items:center;gap:6px;"><span style="font-size:13px">🐍</span><span style="font-size:11px;color:#8fe89a;font-weight:600">Vergiftet</span></div>
+      <div class="stat"><span>🍖</span><div class="bar" id="bHunger"><i style="width:100%"></i></div></div>
+      <div class="stat"><span>💧</span><div class="bar" id="bThirst"><i style="width:100%"></i></div></div>
+      <div class="stat"><span>⚡</span><div class="bar" id="bEnergy"><i style="width:100%"></i></div></div>
+    </div>
+    <div id="rightcol">
+      <div id="daytime">Tag 1 · 08:00</div>
+      <div id="resbar">🪵 0 · 🪨 0 · 🌾 0</div>
+      <canvas id="mmap" width="96" height="96" style="transform:rotate(-45deg);border-radius:50%"></canvas>
+    </div>
+  </div>
+
+  <div id="joyZone"><div id="joyBase"></div><div id="joyKnob"></div></div>
+
+  <div id="rightside">
+    <button id="act2" class="actbtn sec" style="display:none"></button>
+    <button id="act1" class="actbtn" style="display:none"></button>
+    <div id="menurow">
+      <button id="btnMute" class="round">🔊</button>
+      <button id="btnCraft" class="round">🛠️</button>
+      <button id="btnInv" class="round">🎒</button>
+    </div>
+  </div>
+
+  <div id="progWrap"><div id="progLabel"></div><div id="progBar"><i></i></div></div>
+  <div id="shipHUD" style="display:none;position:fixed;top:calc(env(safe-area-inset-top,0px) + 70px);left:50%;transform:translateX(-50%);background:rgba(10,20,30,.88);color:#ffe27a;padding:7px 18px;border-radius:12px;font-size:14px;font-weight:700;pointer-events:none;z-index:9;border:1.5px solid rgba(255,226,122,.35);white-space:nowrap;backdrop-filter:blur(4px);">🚢 EIN SCHIFF! · <span id="shipCnt"></span></div>
+<div id="toasts"></div>
+
+  <div id="invSheet" class="sheet panel">
+    <h2>Rucksack <button data-close>×</button></h2>
+    <div id="invGrid"></div>
+    <div class="hint">Tippe auf Essbares, um es zu verzehren.</div>
+  </div>
+
+  <div id="craftSheet" class="sheet panel">
+    <h2>Herstellen <button data-close>×</button></h2>
+    <div id="craftList"></div>
+  </div>
+</div>
+
+
+<div id="start" class="overlay">
+  <h1>GESTRANDET</h1>
+  <div class="sub">Kapitel 1 &middot; Die Insel</div>
+  <p>Dein Flugzeug ist über dem Pazifik abgestürzt. Du erwachst allein an einem fremden Strand —
+     ohne Werkzeug, ohne Wissen, ohne Hilfe. Finde Wasser, Nahrung und Feuer.
+     Überlebe. Und finde irgendwann einen Weg zurück.</p>
+  <button id="btnNew">Neues Spiel</button>
+  <button id="btnContinue" class="ghost" style="display:none">Fortsetzen</button>
+</div>
+
+<div id="gameover" class="overlay">
+  <h1>DAS ENDE</h1>
+  <div class="sub" id="goSub">Tag 1</div>
+  <p id="goText">Die Insel hat dich besiegt. Doch jeder Versuch lehrt dich etwas Neues.</p>
+  <button id="btnRetry">Noch einmal versuchen</button>
+</div>
+
+<div id="win" class="overlay" style="display:none; background:linear-gradient(180deg,#0e3a55,#0a1622)">
+  <h1>GERETTET!</h1>
+  <div class="sub" id="winSub">Entkommen</div>
+  <p>Du stichst in See. Nach zwei Tagen auf offenem Wasser entdeckt dich ein Frachter.
+     Du hast überlebt — und die Insel hat dich für immer verändert.</p>
+  <button id="btnWinNew">Neues Abenteuer</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+"use strict";
+/* =====================================================================
+   GESTRANDET — Phase 1 (Insel)
+   Isometrisches Low-Poly-Survival · Three.js r128 · Single File PWA
+   ===================================================================== */
+
+// ---------- Konfiguration ----------
+const CFG = {
+  dayLength: 240,          // Sekunden pro Spieltag (24h)
+  islandR: 58,
+  waterLevel: 0.6,
+  viewSize: 26,
+  speed: 7.5,
+  decay: { hunger: 0.26, thirst: 0.36, energy: 0.20 },
+  pond: { x: -9, z: 7, r: 3.5 },
+};
+
+const ITEMS = {
+  holz:    { nm:"Holz",       em:"🪵" },
+  stein:   { nm:"Stein",      em:"🪨" },
+  faser:   { nm:"Fasern",     em:"🌾" },
+  beere:   { nm:"Beeren",     em:"🫐", eat:{hunger:8} },
+  kokos:   { nm:"Kokosnuss",  em:"🥥", eat:{hunger:18, thirst:10} },
+  fischRoh:{ nm:"Roher Fisch",em:"🐟", eat:{hunger:12, risk:true} },
+  fischGeb:{ nm:"Gebr. Fisch",em:"🍢", eat:{hunger:35} },
+  krabbe:  { nm:"Krabbe",     em:"🦀" },
+  krabbeGeb:{nm:"Gebr. Krabbe",em:"🍤", eat:{hunger:25} },
+  konserve:{ nm:"Konserve",   em:"🥫", eat:{hunger:40} },
+  messer:  { nm:"Messer",     em:"🔪" },
+  flasche: { nm:"Flasche",    em:"🍼" },
+  speer:   { nm:"Speer",      em:"🔱" },
+  axt:     { nm:"Axt",        em:"🪓" },
+  segel:        { nm:"Segeltuch",    em:"⛵" },
+  palmzweig:    { nm:"Palmzweige",   em:"🌿" },
+  leuchtrakete: { nm:"Leuchtrakete", em:"🚀" },
+  heilkraut:    { nm:"Heilkraut",    em:"🌱", eat:{hunger:5, cure:true} },
+  banane:  { nm:"Banane",     em:"🍌", eat:{hunger:14} },
+  fleischRoh:{ nm:"Rohes Fleisch", em:"🥩" },
+  fleischGeb:{ nm:"Gebr. Fleisch", em:"🍖", eat:{hunger:45} },
+  fackel:  { nm:"Fackel",     em:"🕯️" },
+};
+
+const RECIPES = [
+  { id:"feuer",   nm:"Lagerfeuer",   em:"🔥", cost:{holz:4, stein:2}, place:true,
+    desc:"Braten & nachts schlafen" },
+  { id:"speer",   nm:"Speer",        em:"🔱", cost:{holz:2, faser:2}, unique:true,
+    desc:"Erlaubt Fischen am Meer" },
+  { id:"axt",     nm:"Axt",          em:"🪓", cost:{holz:3, stein:2, faser:1}, unique:true,
+    desc:"Schneller & mehr Holz" },
+  { id:"schutz",  nm:"Unterschlupf", em:"⛺", cost:{holz:8, faser:6}, place:true,
+    desc:"Sicherer Schlafplatz" },
+  { id:"fackel",  nm:"Fackel",       em:"🕯️", cost:{holz:1, faser:1},
+    desc:"Licht für die Höhle (1× Erkundung)" },
+];
+
+// ---------- Spielzustand ----------
+let S = null;
+function freshState(){
+  return {
+    v: 1,
+    hours: 8, day: 1,
+    health:100, hunger:100, thirst:100, energy:100,
+    px: 8, pz: 42,
+    cave: 0, peak: 0, driftN: 0,
+    shipCD: 95, poison: 0, snakeCD: 60,
+    weather: { type:"clear", t: 8 },
+    inv: {},
+    bottle: 0,
+    raft: 0,                   // 0 Wrack · 1 Rumpf · 2 Mast & Segel · 3 startklar
+    found: {},                 // einmalige Strandgut-Funde
+    fires: [], shelters: [],
+    nextDrift: 60,             // Sekunden bis zum nächsten Strandgut
+    tutorial: 0,
+  };
+}
+const has  = id => (S.inv[id]||0) > 0;
+const give = (id,n=1) => { S.inv[id]=(S.inv[id]||0)+n; };
+const take = (id,n=1) => { S.inv[id]=Math.max(0,(S.inv[id]||0)-n); };
+
+// ---------- Speicher (mit Schutz, falls Storage nicht verfügbar) ----------
+const SAVE_KEY = "gestrandet_v1";
+function saveGame(){ try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch(e){} }
+function loadGame(){ try { const r = localStorage.getItem(SAVE_KEY); return r ? JSON.parse(r) : null; } catch(e){ return null; } }
+function clearSave(){ try { localStorage.removeItem(SAVE_KEY); } catch(e){} }
+
+// ---------- Three.js Grundgerüst ----------
+const canvas = document.getElementById("c");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias:true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0xaee3f5, 60, 140);
+
+let cam;
+function makeCamera(){
+  const a = window.innerWidth / window.innerHeight;
+  const v = CFG.viewSize;
+  cam = new THREE.OrthographicCamera(-v*a/2, v*a/2, v/2, -v/2, 1, 400);
+}
+makeCamera();
+
+const hemi = new THREE.HemisphereLight(0xcfe8ff, 0x3a5a3a, 0.55);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xfff2d0, 1.0);
+sun.position.set(30, 50, 20);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+sun.shadow.camera.near = 10; sun.shadow.camera.far = 180;
+sun.shadow.camera.left = -32; sun.shadow.camera.right = 32;
+sun.shadow.camera.top = 32; sun.shadow.camera.bottom = -32;
+sun.shadow.bias = -0.0006;
+scene.add(sun); scene.add(sun.target);
+const moonLight = new THREE.DirectionalLight(0x8fb6ff, 0.0);
+moonLight.position.set(-40, 50, -30);
+scene.add(moonLight);
+const amb = new THREE.AmbientLight(0xffffff, 0.18);
+scene.add(amb);
+scene.add(cam); // damit Kamera-Kinder (Sterne, Mond) gerendert werden
+
+// ---------- Terrain ----------
+function hash(x, z){ // deterministisches Pseudo-Rauschen
+  const s = Math.sin(x*127.1 + z*311.7) * 43758.5453;
+  return s - Math.floor(s);
+}
+const JUNGLE = { x:-32, z:-2,  r:15 };   // dunkler Dschungel (Westen)
+const MOUNT  = { x:0,   z:-32 };          // Gebirge (Norden)
+const CAVE   = { x:0,   z:-18 };          // Höhleneingang am Südhang
+
+function terrainH(x, z){
+  const d = Math.sqrt(x*x + z*z);
+  const mask = Math.max(0, 1 - (d/CFG.islandR)*(d/CFG.islandR));
+  let h = mask * 5;
+  h += (Math.sin(x*0.23)*Math.cos(z*0.19)*0.7 + Math.sin(x*0.07 + z*0.11)*0.9) * Math.max(0, 1 - d/CFG.islandR);
+  // Gebirge im Norden: Hauptgipfel + Nebengipfel + felsige Grate
+  const dm = Math.hypot(x - MOUNT.x, z - MOUNT.z);
+  const dm2 = Math.hypot(x - 9, z + 24);
+  h += (13 * Math.exp(-dm/6.5) + 5.5 * Math.exp(-dm2/4.5)) * Math.min(1, mask*3);
+  if (dm < 18) h += Math.abs(Math.sin(x*0.7)*Math.cos(z*0.6)) * (1 - dm/18) * 1.6;
+  // Süßwasserteich einebnen
+  const dp = Math.hypot(x - CFG.pond.x, z - CFG.pond.z);
+  if (dp < CFG.pond.r + 2.5){
+    const t = Math.min(1, Math.max(0, (CFG.pond.r + 2.5 - dp) / 2.5));
+    h = h * (1-t) + 3.0 * t;
+  }
+  return h;
+}
+
+const SAND = new THREE.Color(0xe8d49a), GRASS1 = new THREE.Color(0x76b35e),
+      GRASS2 = new THREE.Color(0x4e8f46), ROCKC = new THREE.Color(0x9aa0a6),
+      SCREE = new THREE.Color(0xc9cdd2), SNOWC = new THREE.Color(0xf4f7fa);
+
+(function buildTerrain(){
+  const g = new THREE.PlaneGeometry(180, 180, 120, 120);
+  g.rotateX(-Math.PI/2);
+  const pos = g.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++){
+    const x = pos.getX(i), z = pos.getZ(i);
+    const h = terrainH(x, z);
+    pos.setY(i, h);
+    if (h < 1.25) c.copy(SAND);
+    else if (h < 2.1) c.copy(SAND).lerp(GRASS1, (h-1.25)/0.85);
+    else if (h < 5.0) c.copy(GRASS1).lerp(GRASS2, (h-2.1)/2.9);
+    else if (h < 9.0) c.copy(GRASS2).lerp(ROCKC, (h-5.0)/4.0);
+    else if (h < 13.0) c.copy(ROCKC).lerp(SCREE, (h-9.0)/4.0);
+    else c.copy(SCREE).lerp(SNOWC, Math.min(1, (h-13.0)/2.5));
+    // Dschungel-Zone abdunkeln
+    const dj = Math.hypot(x - JUNGLE.x, z - JUNGLE.z);
+    if (dj < JUNGLE.r + 4 && h > 1.4){
+      const t = Math.min(1, Math.max(0, (JUNGLE.r + 4 - dj) / 5));
+      c.multiplyScalar(1 - 0.38*t);
+    }
+    // leichte Farbvariation
+    const v = (hash(x,z)-0.5)*0.06;
+    c.offsetHSL(0, 0, v);
+    colors[i*3]=c.r; colors[i*3+1]=c.g; colors[i*3+2]=c.b;
+  }
+  g.computeVertexNormals();
+  g.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  const m = new THREE.MeshLambertMaterial({ vertexColors:true });
+  const terrain = new THREE.Mesh(g, m);
+  terrain.receiveShadow = true;
+  scene.add(terrain);
+})();
+
+// Ozean — animierte Wellen mit Glanzlicht
+const oceanGeo = new THREE.PlaneGeometry(360, 360, 48, 48);
+oceanGeo.rotateX(-Math.PI/2);
+const ocean = new THREE.Mesh(oceanGeo, new THREE.MeshPhongMaterial({
+  color:0x2e7fa8, shininess:90, specular:0x9fdcff, transparent:true, opacity:0.86 }));
+ocean.position.y = CFG.waterLevel;
+scene.add(ocean);
+const oceanPos = oceanGeo.attributes.position;
+
+// Teich
+const pondMesh = new THREE.Mesh(
+  new THREE.CircleGeometry(CFG.pond.r, 24),
+  new THREE.MeshPhongMaterial({ color:0x3fa3c9, shininess:70, specular:0xbfe8ff, transparent:true, opacity:0.92 })
+);
+pondMesh.rotation.x = -Math.PI/2;
+pondMesh.position.set(CFG.pond.x, 3.05, CFG.pond.z);
+scene.add(pondMesh);
+
+// ---------- Objekt-Fabriken (Low-Poly) ----------
+function mat(c){ return new THREE.MeshLambertMaterial({ color:c }); }
+
+function mkPalm(){
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.28, 3.4, 6), mat(0x8a5a33));
+  trunk.position.y = 1.7; trunk.rotation.z = (Math.random()-0.5)*0.25;
+  g.add(trunk);
+  for (let i = 0; i < 5; i++){
+    const leaf = new THREE.Mesh(new THREE.ConeGeometry(0.34, 2.3, 4), mat(0x3f9b4f));
+    const a = i/5 * Math.PI*2;
+    leaf.position.set(Math.cos(a)*0.85, 3.45, Math.sin(a)*0.85);
+    leaf.rotation.set(Math.sin(a)*1.25, 0, Math.cos(a)*-1.25);
+    g.add(leaf);
+  }
+  for (let i = 0; i < 3; i++){ // Kokosnüsse in der Krone
+    const nut = new THREE.Mesh(new THREE.SphereGeometry(0.16, 6, 5), mat(0x6b4a2b));
+    const a = Math.random()*Math.PI*2;
+    nut.position.set(Math.cos(a)*0.3, 3.18, Math.sin(a)*0.3);
+    g.add(nut);
+  }
+  g.scale.setScalar(0.85 + Math.random()*0.4);
+  return g;
+}
+function mkRock(){
+  const r = new THREE.Mesh(new THREE.DodecahedronGeometry(0.7 + Math.random()*0.5, 0), mat(0x8f8f94));
+  r.scale.y = 0.7; r.rotation.y = Math.random()*Math.PI;
+  const g = new THREE.Group(); g.add(r); r.position.y = 0.35;
+  return g;
+}
+function mkBush(){
+  const g = new THREE.Group();
+  const b = new THREE.Mesh(new THREE.SphereGeometry(0.65, 7, 5), mat(0x2f7a3c));
+  b.position.y = 0.5; b.scale.y = 0.8; g.add(b);
+  for (let i = 0; i < 4; i++){
+    const berry = new THREE.Mesh(new THREE.SphereGeometry(0.07, 5, 4), mat(0x5a4ec9));
+    const a = Math.random()*Math.PI*2;
+    berry.position.set(Math.cos(a)*0.5, 0.55+Math.random()*0.3, Math.sin(a)*0.5);
+    g.add(berry);
+  }
+  return g;
+}
+function mkCoconut(){
+  const g = new THREE.Group();
+  const n = new THREE.Mesh(new THREE.SphereGeometry(0.24, 7, 6), mat(0x6b4a2b));
+  n.position.y = 0.2; g.add(n);
+  return g;
+}
+function mkCrab(){
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.28, 7, 5), mat(0xd9603b));
+  body.scale.set(1.3, 0.6, 1); body.position.y = 0.2; g.add(body);
+  const cl = new THREE.Mesh(new THREE.SphereGeometry(0.12, 5, 4), mat(0xd9603b));
+  cl.position.set(0.42, 0.22, 0.18); g.add(cl);
+  const cr = cl.clone(); cr.position.x = -0.42; g.add(cr);
+  return g;
+}
+function mkDrift(){
+  const g = new THREE.Group();
+  const box = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.5, 0.55), mat(0xb08d57));
+  box.position.y = 0.27; box.rotation.y = Math.random();
+  g.add(box);
+  const glow = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.7, 4), mat(0xffe27a));
+  glow.position.y = 1.0; g.add(glow); g.userData.glow = glow;
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.55, 9, 8, 1, true),
+    new THREE.MeshBasicMaterial({ color:0xffe27a, transparent:true, opacity:0.28,
+      depthWrite:false, side:THREE.DoubleSide }));
+  beam.position.y = 4.6; beam.userData.noShadow = true; beam.visible = false;
+  g.add(beam); g.userData.beam = beam;
+  return g;
+}
+function mkFire(){
+  const g = new THREE.Group();
+  for (let i = 0; i < 6; i++){
+    const st = new THREE.Mesh(new THREE.DodecahedronGeometry(0.14, 0), mat(0x7d7d82));
+    const a = i/6*Math.PI*2;
+    st.position.set(Math.cos(a)*0.5, 0.1, Math.sin(a)*0.5);
+    g.add(st);
+  }
+  const log = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.8, 5), mat(0x6e4726));
+  log.rotation.z = Math.PI/2; log.position.y = 0.12; g.add(log);
+  const log2 = log.clone(); log2.rotation.y = Math.PI/2; g.add(log2);
+  const flame = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.8, 6),
+    new THREE.MeshBasicMaterial({ color:0xffa23b }));
+  flame.position.y = 0.55; flame.userData.noShadow = true;
+  g.add(flame); g.userData.flame = flame;
+  const light = new THREE.PointLight(0xffa040, 1.1, 11, 2);
+  light.position.y = 1; g.add(light); g.userData.light = light;
+  return g;
+}
+function mkShelter(){
+  const g = new THREE.Group();
+  const p1 = new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.07,1.6,5), mat(0x8a5a33));
+  p1.position.set(-0.9, 0.8, 0); g.add(p1);
+  const p2 = p1.clone(); p2.position.x = 0.9; g.add(p2);
+  const roof = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 2.0), mat(0xc9b46a));
+  roof.material.side = THREE.DoubleSide;
+  roof.position.set(0, 1.05, -0.55); roof.rotation.x = -1.05;
+  g.add(roof);
+  return g;
+}
+function mkPlayer(){
+  const g = new THREE.Group();
+  const legs = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.26, 0.55, 7), mat(0x4b6b8a));
+  legs.position.y = 0.28; g.add(legs);
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.30, 0.24, 0.62, 7), mat(0xd96a4f));
+  body.position.y = 0.86; g.add(body);
+  const armL = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.06, 0.52, 6), mat(0xe8b88f));
+  armL.position.set(-0.37, 0.92, 0); g.add(armL);
+  const armR = armL.clone(); armR.position.x = 0.37; g.add(armR);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 8, 7), mat(0xe8b88f));
+  head.position.y = 1.42; g.add(head);
+  const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.04, 10), mat(0xd9b36a));
+  brim.position.y = 1.58; g.add(brim);
+  const hat = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.26, 10), mat(0xd9b36a));
+  hat.position.y = 1.72; g.add(hat);
+  g.userData.armL = armL; g.userData.armR = armR;
+  return g;
+}
+// Schatten für alle Meshes einer Gruppe aktivieren
+function shadowify(g){
+  g.traverse(o => { if (o.isMesh && !o.userData.noShadow) o.castShadow = true; });
+  return g;
+}
+
+// ---------- Welt füllen ----------
+const palms=[], rocks=[], bushes=[], coconuts=[], crabs=[], drifts=[], fires=[], shelters=[];
+const player = shadowify(mkPlayer()); scene.add(player);
+
+function placeOnTerrain(obj, x, z){ obj.position.set(x, terrainH(x, z), z); }
+function randSpot(minH, maxH, tries=60){
+  for (let i = 0; i < tries; i++){
+    const a = Math.random()*Math.PI*2, r = Math.random()*CFG.islandR;
+    const x = Math.cos(a)*r, z = Math.sin(a)*r;
+    const h = terrainH(x, z);
+    const dp = Math.hypot(x-CFG.pond.x, z-CFG.pond.z);
+    if (h >= minH && h <= maxH && dp > CFG.pond.r + 1.5) return {x, z};
+  }
+  return null;
+}
+function scatter(arr, maker, n, minH, maxH, type){
+  for (let i = 0; i < n; i++){
+    const s = randSpot(minH, maxH); if (!s) continue;
+    const o = shadowify(maker());
+    placeOnTerrain(o, s.x, s.z);
+    o.rotation.y = Math.random()*Math.PI*2;
+    o.userData.type = type; o.userData.cool = 0;
+    scene.add(o); arr.push(o);
+  }
+}
+scatter(palms,  mkPalm,    26, 1.2, 3.4, "palm");
+scatter(rocks,  mkRock,    16, 1.6, 11.5, "rock");
+scatter(bushes, mkBush,    16, 1.5, 4.8, "bush");
+scatter(coconuts, mkCoconut, 8, 1.0, 2.6, "coco");
+scatter(crabs,  mkCrab,     4, 0.85, 1.3, "crab");
+crabs.forEach(c => { c.userData.dir = Math.random()*Math.PI*2; c.userData.t = 0; });
+
+// ---------- Deko: Gras, Blumen, Muscheln, Kiesel (instanziert, sehr günstig) ----------
+function scatterInstanced(geo, color, count, minH, maxH, sMin, sMax){
+  const im = new THREE.InstancedMesh(geo, mat(color), count);
+  const d = new THREE.Object3D();
+  let placed = 0;
+  for (let i = 0; i < count; i++){
+    const s = randSpot(minH, maxH); if (!s) continue;
+    d.position.set(s.x, terrainH(s.x, s.z), s.z);
+    d.rotation.y = Math.random()*Math.PI*2;
+    const sc = sMin + Math.random()*(sMax - sMin);
+    d.scale.set(sc, sc, sc);
+    d.updateMatrix();
+    im.setMatrixAt(placed++, d.matrix);
+  }
+  im.count = placed;
+  im.instanceMatrix.needsUpdate = true;
+  scene.add(im);
+}
+const grassGeo = new THREE.ConeGeometry(0.10, 0.55, 4); grassGeo.translate(0, 0.27, 0);
+scatterInstanced(grassGeo, 0x55a04a, 200, 1.6, 6.0, 0.7, 1.5);
+const flowerGeo = new THREE.SphereGeometry(0.08, 5, 4); flowerGeo.translate(0, 0.14, 0);
+scatterInstanced(flowerGeo, 0xffd24a, 35, 1.7, 3.6, 0.8, 1.4);
+scatterInstanced(new THREE.SphereGeometry(0.11, 5, 4), 0xf3ece0, 28, 0.85, 1.2, 0.6, 1.2); // Muscheln
+const pebbleGeo = new THREE.DodecahedronGeometry(0.12, 0); pebbleGeo.translate(0, 0.06, 0);
+scatterInstanced(pebbleGeo, 0xa6a39a, 60, 0.9, 11.0, 0.6, 1.4);
+
+// ---------- Wolken ----------
+const clouds = [];
+(function mkClouds(){
+  const cm = new THREE.MeshLambertMaterial({ color:0xffffff, transparent:true, opacity:0.92 });
+  for (let i = 0; i < 6; i++){
+    const g = new THREE.Group();
+    const n = 3 + Math.floor(Math.random()*3);
+    for (let j = 0; j < n; j++){
+      const s = new THREE.Mesh(new THREE.SphereGeometry(1.5 + Math.random()*1.7, 7, 6), cm);
+      s.position.set(j*2.1 - n*1.05, Math.random()*0.6, (Math.random()-0.5)*2.2);
+      s.scale.y = 0.55; g.add(s);
+    }
+    g.position.set((Math.random()-0.5)*160, 19 + Math.random()*7, (Math.random()-0.5)*140);
+    g.userData.v = 0.5 + Math.random()*0.8;
+    scene.add(g); clouds.push(g);
+  }
+})();
+
+// ---------- Sterne & Mond (an der Kamera befestigt) ----------
+const starMat = new THREE.PointsMaterial({ color:0xffffff, size:1.8,
+  sizeAttenuation:false, transparent:true, opacity:0, fog:false, depthWrite:false });
+(function mkStars(){
+  const n = 140, p = new Float32Array(n*3);
+  for (let i = 0; i < n; i++){
+    p[i*3]   = (Math.random()-0.5)*46;
+    p[i*3+1] = Math.random()*18 - 2;
+    p[i*3+2] = -90 - Math.random()*40;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(p, 3));
+  cam.add(new THREE.Points(g, starMat));
+})();
+const moonMat = new THREE.MeshBasicMaterial({ color:0xf5f1de, transparent:true, opacity:0, fog:false, depthWrite:false });
+(function mkMoon(){
+  const m = new THREE.Mesh(new THREE.CircleGeometry(1.6, 20), moonMat);
+  m.position.set(-8, 8.5, -95);
+  cam.add(m);
+})();
+
+// ---------- Möwen ----------
+const gulls = [];
+(function mkGulls(){
+  const wm = new THREE.MeshBasicMaterial({ color:0xffffff, side:THREE.DoubleSide });
+  for (let i = 0; i < 3; i++){
+    const g = new THREE.Group();
+    const w1 = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.26), wm);
+    w1.position.x = -0.45;
+    const w2 = w1.clone(); w2.position.x = 0.45;
+    g.add(w1); g.add(w2);
+    g.userData = { w1, w2, a: Math.random()*Math.PI*2,
+      r: 22 + Math.random()*12, h: 11 + Math.random()*4,
+      s: 0.22 + Math.random()*0.14, f: Math.random()*6 };
+    scene.add(g); gulls.push(g);
+  }
+})();
+
+// ---------- Regen ----------
+const RAIN_N = 350;
+const rainGeo = new THREE.BufferGeometry();
+(function initRain(){
+  const p = new Float32Array(RAIN_N*3);
+  for (let i = 0; i < RAIN_N; i++){
+    p[i*3]   = (Math.random()-0.5)*38;
+    p[i*3+1] = Math.random()*16;
+    p[i*3+2] = (Math.random()-0.5)*38;
+  }
+  rainGeo.setAttribute("position", new THREE.BufferAttribute(p, 3));
+})();
+const rainMat = new THREE.PointsMaterial({ color:0xa9cce4, size:1.7,
+  sizeAttenuation:false, transparent:true, opacity:0, depthWrite:false });
+const rain = new THREE.Points(rainGeo, rainMat);
+scene.add(rain);
+let wB = 0, rainFillT = 0;        // Wetter-Blendwert & Flaschen-Fülltimer
+const GRAYC = new THREE.Color(0x7e8b97);
+function setWeather(type, hours){
+  const prev = S.weather.type;
+  S.weather.type = type; S.weather.t = hours;
+  if (type === prev) return;
+  if (type === "rain")  toast("🌧️ Regen zieht auf …");
+  else if (type === "storm") toast("⛈️ Ein Sturm! Such Schutz im Unterschlupf!", 3600);
+  else {
+    toast("☀️ Der Himmel klart auf.");
+    if (prev === "storm" && Math.random() < 0.45) setTimeout(triggerFlood, 3500);
+  }
+}
+
+// ---------- Aktions-Markierung (pulsierender Ring) ----------
+const hiRing = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.72, 22),
+  new THREE.MeshBasicMaterial({ color:0xffe27a, transparent:true, opacity:0.85,
+    side:THREE.DoubleSide, depthWrite:false }));
+hiRing.rotation.x = -Math.PI/2; hiRing.visible = false;
+scene.add(hiRing);
+
+// ---------- Dschungel: Bäume, Bananen, Wildschwein ----------
+const jungleTrees = [], bananas = [], boars = [];
+function mkJungleTree(){
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.32, 4.4, 6), mat(0x5a4026));
+  trunk.position.y = 2.2; g.add(trunk);
+  for (let i = 0; i < 3; i++){
+    const cnp = new THREE.Mesh(new THREE.SphereGeometry(1.0 + Math.random()*0.5, 7, 6), mat(0x1f5e33));
+    cnp.position.set((Math.random()-0.5)*1.2, 4.0 + Math.random()*1.0, (Math.random()-0.5)*1.2);
+    cnp.scale.y = 0.8; g.add(cnp);
+  }
+  g.scale.setScalar(0.9 + Math.random()*0.5);
+  return g;
+}
+function mkBanana(){
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.18, 1.6, 6), mat(0x7a9a3f));
+  trunk.position.y = 0.8; g.add(trunk);
+  for (let i = 0; i < 4; i++){
+    const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.55, 6, 5), mat(0x3c8f3c));
+    const a = i/4 * Math.PI*2 + 0.4;
+    leaf.position.set(Math.cos(a)*0.55, 1.6, Math.sin(a)*0.55);
+    leaf.scale.set(1.5, 0.22, 0.5); leaf.rotation.y = -a;
+    g.add(leaf);
+  }
+  const fruit = new THREE.Mesh(new THREE.SphereGeometry(0.18, 6, 5), mat(0xf2d24b));
+  fruit.position.set(0.22, 1.32, 0.1); fruit.scale.y = 1.5; g.add(fruit);
+  return g;
+}
+function mkBoar(){
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.42, 8, 6), mat(0x6e4a33));
+  body.scale.set(1.45, 0.95, 0.9); body.position.y = 0.5; g.add(body);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.27, 7, 6), mat(0x5e3e2a));
+  head.position.set(0, 0.55, 0.62); g.add(head);
+  const snout = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.16, 6), mat(0xc98f7a));
+  snout.rotation.x = Math.PI/2; snout.position.set(0, 0.5, 0.9); g.add(snout);
+  for (let i = 0; i < 4; i++){
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.4, 5), mat(0x4e342a));
+    leg.position.set(i%2 ? 0.22 : -0.22, 0.2, i<2 ? 0.35 : -0.35);
+    g.add(leg);
+  }
+  return g;
+}
+function jungleSpot(tries=80){
+  for (let i = 0; i < tries; i++){
+    const a = Math.random()*Math.PI*2, r = Math.random()*JUNGLE.r;
+    const x = JUNGLE.x + Math.cos(a)*r, z = JUNGLE.z + Math.sin(a)*r;
+    const h = terrainH(x, z);
+    const dp = Math.hypot(x-CFG.pond.x, z-CFG.pond.z);
+    if (h > 1.6 && h < 6 && dp > CFG.pond.r + 1.5) return {x, z};
+  }
+  return null;
+}
+for (let i = 0; i < 16; i++){
+  const s = jungleSpot(); if (!s) continue;
+  const t = shadowify(mkJungleTree());
+  placeOnTerrain(t, s.x, s.z); t.rotation.y = Math.random()*Math.PI*2;
+  scene.add(t); jungleTrees.push(t); t.userData.cool = 0;
+}
+for (let i = 0; i < 4; i++){
+  const s = jungleSpot(); if (!s) continue;
+  const b = shadowify(mkBanana());
+  placeOnTerrain(b, s.x, s.z); b.rotation.y = Math.random()*Math.PI*2;
+  scene.add(b); bananas.push(b); b.userData.cool = 0;
+}
+(function spawnBoar(){
+  const s = jungleSpot() || { x:JUNGLE.x, z:JUNGLE.z };
+  const b = shadowify(mkBoar());
+  placeOnTerrain(b, s.x, s.z);
+  b.userData = { dir: Math.random()*Math.PI*2, t: 0, dead: 0 };
+  scene.add(b); boars.push(b);
+})();
+
+// ---------- Höhle am Berghang ----------
+const caveG = new THREE.Group();
+(function mkCave(){
+  for (let i = 0; i < 3; i++){
+    const r = new THREE.Mesh(new THREE.DodecahedronGeometry(1.0 + Math.random()*0.6, 0), mat(0x7d7d82));
+    r.position.set((i-1)*1.5, 0.6, -0.4 - Math.random()*0.4);
+    r.scale.y = 1.2; caveG.add(r);
+  }
+  const hole = new THREE.Mesh(new THREE.CircleGeometry(0.85, 16),
+    new THREE.MeshBasicMaterial({ color:0x04070b }));
+  hole.position.set(0, 0.85, 0.45);
+  hole.rotation.x = -0.25;
+  caveG.add(hole);
+  shadowify(caveG);
+  caveG.position.set(CAVE.x, terrainH(CAVE.x, CAVE.z), CAVE.z);
+  scene.add(caveG);
+})();
+
+
+// -------- Schiff (Ereignis) --------
+function mkShip(){
+  const g = new THREE.Group();
+  const hull = new THREE.Mesh(new THREE.BoxGeometry(1.6,0.4,5.5), mat(0xf0ece4));
+  hull.position.y=0.25; g.add(hull);
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.2,0.7,2.0), mat(0xd4c9b0));
+  cabin.position.set(0,0.65,-0.6); g.add(cabin);
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.07,4.5,5), mat(0x7a5a2a));
+  mast.position.y=2.7; g.add(mast);
+  const sail = new THREE.Mesh(new THREE.PlaneGeometry(2.0,2.8),
+    new THREE.MeshLambertMaterial({color:0xf4eed8, side:THREE.DoubleSide}));
+  sail.position.set(0,2.0,0.3); g.add(sail);
+  g.scale.setScalar(3.0); return g;
+}
+const shipMesh = mkShip();
+shipMesh.visible=false; shipMesh.position.y=CFG.waterLevel+0.4; scene.add(shipMesh);
+let shipRealTimer=0;
+
+// -------- Palmzweige --------
+function mkFrond(){
+  const g=new THREE.Group();
+  const l=new THREE.Mesh(new THREE.PlaneGeometry(0.9,0.28),
+    new THREE.MeshLambertMaterial({color:0x5ea54b,side:THREE.DoubleSide}));
+  l.rotation.x=-0.35; l.position.y=0.06; g.add(l);
+  const l2=l.clone(); l2.rotation.y=Math.PI*0.6; g.add(l2); return g;
+}
+const fronds=[];
+scatter(fronds, mkFrond, 10, 1.2, 3.2, "frond");
+
+// -------- Heilkraut --------
+function mkHerb(){
+  const g=new THREE.Group();
+  const st=new THREE.Mesh(new THREE.CylinderGeometry(0.03,0.03,0.20,4), mat(0x3a7a2a));
+  st.position.y=0.10; g.add(st);
+  for(let i=0;i<3;i++){
+    const l=new THREE.Mesh(new THREE.SphereGeometry(0.10,4,3), mat(0x5aaa3a));
+    l.position.set(Math.cos(i*Math.PI*2/3)*0.12,0.20,Math.sin(i*Math.PI*2/3)*0.12);
+    l.scale.set(1.6,0.55,0.8); g.add(l);
+  } return g;
+}
+const herbs=[];
+scatter(herbs, mkHerb, 6, 6.0, 14.0, "herb");
+
+// ---------- Floß-Bauplatz (Südstrand) ----------
+const RAFT = { x: 10, z: 51 };
+const raftG = new THREE.Group();
+raftG.position.set(RAFT.x, terrainH(RAFT.x, RAFT.z), RAFT.z);
+scene.add(raftG);
+function updateRaftMesh(){
+  while (raftG.children.length) raftG.remove(raftG.children[0]);
+  const stage = S ? (S.raft || 0) : 0;
+  if (stage === 0){
+    // Wrackteile
+    for (let i = 0; i < 4; i++){
+      const p = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.1, 1.6 + Math.random()), mat(0x6e5436));
+      p.position.set((Math.random()-0.5)*1.8, 0.1, (Math.random()-0.5)*1.8);
+      p.rotation.set((Math.random()-0.5)*0.5, Math.random()*Math.PI, (Math.random()-0.5)*0.4);
+      raftG.add(p);
+    }
+  } else {
+    // Plattform
+    for (let i = 0; i < 5; i++){
+      const p = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.14, 3.0), mat(0xa07a4a));
+      p.position.set(i*0.5 - 1.0, 0.3, 0);
+      raftG.add(p);
+    }
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.1, 0.3), mat(0x8a6438));
+    beam.position.set(0, 0.42, -1.1); raftG.add(beam);
+    const beam2 = beam.clone(); beam2.position.z = 1.1; raftG.add(beam2);
+  }
+  if (stage >= 2){
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 2.8, 6), mat(0x8a5a33));
+    mast.position.set(0, 1.75, 0); raftG.add(mast);
+    const sail = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 1.9), 
+      new THREE.MeshLambertMaterial({ color:0xf2ead2, side:THREE.DoubleSide }));
+    sail.position.set(0.0, 1.9, 0.12); sail.rotation.y = 0.25;
+    raftG.add(sail);
+  }
+  if (stage >= 3){
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.55, 8), mat(0x7a4f2a));
+    barrel.position.set(-0.7, 0.62, 0.9); raftG.add(barrel);
+    const crate = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.45, 0.55), mat(0xb08d57));
+    crate.position.set(0.7, 0.58, 0.9); raftG.add(crate);
+  }
+  shadowify(raftG);
+}
+updateRaftMesh();
+
+// ---------- Mini-Map ----------
+const MM_RANGE = 136; // Weltbreite, die die Karte abdeckt
+const mmap = document.getElementById("mmap");
+const mmCtx = mmap.getContext("2d");
+const mmStatic = document.createElement("canvas");
+mmStatic.width = 96; mmStatic.height = 96;
+(function bakeMinimap(){
+  const c = mmStatic.getContext("2d");
+  const img = c.createImageData(96, 96);
+  const col = new THREE.Color();
+  for (let j = 0; j < 96; j++){
+    for (let i = 0; i < 96; i++){
+      const wx = (i/95 - 0.5) * MM_RANGE;
+      const wz = (j/95 - 0.5) * MM_RANGE;
+      const hh = terrainH(wx, wz);
+      const dp = Math.hypot(wx - CFG.pond.x, wz - CFG.pond.z);
+      if (dp < CFG.pond.r) col.setHex(0x3fa3c9);
+      else if (hh < CFG.waterLevel + 0.15) col.setHex(0x21618a);
+      else if (hh < 1.25) col.copy(SAND);
+      else if (hh < 2.1) col.copy(SAND).lerp(GRASS1, (hh-1.25)/0.85);
+      else if (hh < 5.0) col.copy(GRASS1).lerp(GRASS2, (hh-2.1)/2.9);
+      else if (hh < 9.0) col.copy(GRASS2).lerp(ROCKC, (hh-5.0)/4.0);
+      else if (hh < 13.0) col.copy(ROCKC).lerp(SCREE, (hh-9.0)/4.0);
+      else col.copy(SNOWC);
+      const dj = Math.hypot(wx - JUNGLE.x, wz - JUNGLE.z);
+      if (dj < JUNGLE.r + 4 && hh > 1.4){
+        const t = Math.min(1, Math.max(0, (JUNGLE.r + 4 - dj) / 5));
+        col.multiplyScalar(1 - 0.38*t);
+      }
+      const k = (j*96 + i) * 4;
+      img.data[k] = col.r*255; img.data[k+1] = col.g*255;
+      img.data[k+2] = col.b*255; img.data[k+3] = 235;
+    }
+  }
+  c.putImageData(img, 0, 0);
+})();
+function mmPt(wx, wz){ return [ (wx/MM_RANGE + 0.5)*96, (wz/MM_RANGE + 0.5)*96 ]; }
+function mmDot(wx, wz, color, r){
+  const p = mmPt(wx, wz);
+  mmCtx.fillStyle = color;
+  mmCtx.beginPath(); mmCtx.arc(p[0], p[1], r||2.2, 0, Math.PI*2); mmCtx.fill();
+}
+function drawMinimap(){
+  if(caveMode) return;
+  mmCtx.clearRect(0, 0, 96, 96);
+  mmCtx.drawImage(mmStatic, 0, 0);
+  mmDot(CAVE.x, CAVE.z, "#2b2f36", 2.4);                      // Höhle
+  mmDot(RAFT.x, RAFT.z, "#e9dfc0", 2.6);                       // Floß
+  fires.forEach(f => mmDot(f.position.x, f.position.z, "#ff9a3b", 2.4));
+  shelters.forEach(s => mmDot(s.position.x, s.position.z, "#d9b36a", 2.4));
+  if (S && S.peak){
+    const blink = 0.55 + Math.sin(performance.now()*0.006)*0.45;
+    mmCtx.globalAlpha = blink;
+    drifts.forEach(d => mmDot(d.position.x, d.position.z, "#ffe27a", 2.6));
+    mmCtx.globalAlpha = 1;
+  }
+  // Spieler
+  const p = mmPt(player.position.x, player.position.z);
+  mmCtx.fillStyle = "#ffffff"; mmCtx.strokeStyle = "#1c2733"; mmCtx.lineWidth = 1.4;
+  mmCtx.beginPath(); mmCtx.arc(p[0], p[1], 3, 0, Math.PI*2); mmCtx.fill(); mmCtx.stroke();
+}
+
+function spawnDrift(){
+  const s = randSpot(0.85, 1.2); if (!s) return;
+  let item;
+  const n = S.driftN || 0;
+  if (n === 0 && !S.found.messer) item = "messer";          // 1. Fund garantiert
+  else if (n <= 1 && !S.found.flasche) item = "flasche";    // 2. Fund garantiert
+  else {
+    const pool = [];
+    if (!S.found.messer)  pool.push("messer");
+    if (!S.found.flasche) pool.push("flasche");
+    if (!S.found.segel && (S.raft||0) >= 1) pool.push("segel", "segel"); // doppelt gewichtet
+    if (S.day>=5 && !S.found.kiste) pool.push("kiste","kiste");
+    pool.push("konserve", "seil", "planke");
+    item = pool[Math.floor(Math.random()*pool.length)];
+  }
+  S.driftN = n + 1;
+  const o = mkDrift();
+  shadowify(o);
+  placeOnTerrain(o, s.x, s.z);
+  o.userData.type = "drift"; o.userData.item = item;
+  if (o.userData.beam) o.userData.beam.visible = !!(S && S.peak);
+  scene.add(o); drifts.push(o);
+  toast("🌊 Etwas wurde an den Strand gespült …");
+}
+
+// ---------- UI-Helfer ----------
+const $ = id => document.getElementById(id);
+function toast(msg, ms=2600){
+  const t = document.createElement("div");
+  t.className = "toast"; t.textContent = msg;
+  $("toasts").appendChild(t);
+  setTimeout(()=>{ t.style.opacity="0"; t.style.transition="opacity .4s"; }, ms-400);
+  setTimeout(()=> t.remove(), ms);
+}
+function fmtTime(){
+  const h = Math.floor(S.hours), m = Math.floor((S.hours - h)*60);
+  const w = S.weather ? S.weather.type : "clear";
+  const ic = w === "storm" ? "⛈️" : w === "rain" ? "🌧️" : "☀️";
+  return `Tag ${S.day} · ${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")} ${ic}`;
+}
+function updateBars(){
+  $("bHealth").firstElementChild.style.width = S.health + "%";
+  $("bHunger").firstElementChild.style.width = S.hunger + "%";
+  $("bThirst").firstElementChild.style.width = S.thirst + "%";
+  $("bEnergy").firstElementChild.style.width = S.energy + "%";
+  $("daytime").textContent = fmtTime();
+  $("resbar").textContent = `🪵 ${S.inv.holz||0} · 🪨 ${S.inv.stein||0} · 🌾 ${S.inv.faser||0}`;
+  drawMinimap();
+}
+
+// Inventar
+function openSheet(id){ closeSheets(); $(id).style.display = "block"; }
+function closeSheets(){ $("invSheet").style.display="none"; $("craftSheet").style.display="none"; }
+document.querySelectorAll("[data-close]").forEach(b => b.onclick = closeSheets);
+$("btnMute").addEventListener("pointerdown", e => {
+  e.preventDefault();
+  startAudio().then(() => {
+    audioOn = !audioOn;
+    $("btnMute").textContent = audioOn ? "🔊" : "🔇";
+    if (mG) mG.gain.value = audioOn ? 0.85 : 0;
+  });
+});
+$("btnInv").addEventListener("pointerdown", e => { e.preventDefault(); if(ghostState) return; renderInv(); openSheet("invSheet"); });
+$("btnCraft").addEventListener("pointerdown", e => { e.preventDefault(); if(gather||ghostState) return; renderCraft(); openSheet("craftSheet"); });
+
+function renderInv(){
+  const g = $("invGrid"); g.innerHTML = "";
+  let any = false;
+  for (const id in S.inv){
+    const n = S.inv[id]; if (n <= 0) continue;
+    any = true;
+    const it = ITEMS[id];
+    const d = document.createElement("div");
+    d.className = "invItem" + (it.eat ? " edible" : "");
+    let extra = "";
+    if (id === "flasche") extra = `<div class="ct">💧 ${S.bottle}/3</div>`;
+    d.innerHTML = `<div class="em">${it.em}</div><div class="nm">${it.nm}</div>
+                   <div class="ct">×${n}</div>${extra}`;
+    d.onclick = () => useItem(id);
+    g.appendChild(d);
+  }
+  if (!any) g.innerHTML = `<div style="grid-column:1/-1;color:#7e94a5;font-size:13px;text-align:center;padding:18px 0">
+    Dein Rucksack ist leer. Sammle Holz, Steine und Nahrung auf der Insel.</div>`;
+}
+function useItem(id){
+  const it = ITEMS[id];
+  if (id === "flasche"){
+    if (S.bottle > 0){ S.bottle--; S.thirst = Math.min(100, S.thirst + 30); sfx("drink"); toast("💧 Du trinkst aus der Flasche."); }
+    else toast("Die Flasche ist leer — fülle sie am Teich.");
+    renderInv(); return;
+  }
+  if (!it.eat) return;
+  take(id, 1);
+  if (it.eat.cure){
+    S.poison=0; take(id,1);
+    toast("🌱 Heilkraut neutralisiert das Gift!"); sfx("pickup"); renderInv(); return;
+  }
+  S.hunger = Math.min(100, S.hunger + (it.eat.hunger||0));
+  S.thirst = Math.min(100, S.thirst + (it.eat.thirst||0));
+  sfx("eat");
+  if (it.eat.risk && Math.random() < 0.35){
+    S.health = Math.max(1, S.health - 10);
+    toast("🤢 Der rohe Fisch bekommt dir nicht …");
+  } else toast(`${it.em} ${it.nm} verzehrt.`);
+  renderInv();
+}
+
+// Crafting
+function canAfford(cost){ for (const k in cost) if ((S.inv[k]||0) < cost[k]) return false; return true; }
+function renderCraft(){
+  const l = $("craftList"); l.innerHTML = "";
+  RECIPES.forEach(r => {
+    if (r.unique && has(r.id)) return;
+    const costTxt = Object.entries(r.cost)
+      .map(([k,n]) => `${ITEMS[k].em} ${n}`).join("  ");
+    const d = document.createElement("div");
+    d.className = "recipe";
+    d.innerHTML = `<div class="info"><b>${r.em} ${r.nm}</b><div>${r.desc}</div>
+                   <div style="margin-top:4px">${costTxt}</div></div>`;
+    const b = document.createElement("button");
+    b.textContent = "Bauen"; b.disabled = !canAfford(r.cost);
+    b.onclick = () => craft(r);
+    d.appendChild(b); l.appendChild(d);
+  });
+}
+function craft(r){
+  if (!canAfford(r.cost)) return;
+  for (const k in r.cost) take(k, r.cost[k]);
+  if (r.id === "speer"){ give("speer"); sfx("craft"); toast("🔱 Speer hergestellt! Fische am Meeresufer."); }
+  else if (r.id === "axt"){ give("axt"); sfx("craft"); toast("🪓 Axt hergestellt! Holzfällen geht jetzt deutlich schneller."); }
+  else if (r.id === "fackel"){ give("fackel"); sfx("craft"); toast("🕯️ Fackel gefertigt — damit kannst du die Höhle erkunden."); }
+  else if (r.id === "feuer"){
+    startGhostPlacement("feuer");
+    renderCraft(); return; // Ghost-Modus: kein saveGame hier
+  }
+  else if (r.id === "schutz"){
+    startGhostPlacement("schutz");
+  }
+  renderCraft(); saveGame();
+}
+
+// ---------- Eingabe: Joystick + Tastatur ----------
+const joy = { active:false, id:null, ox:0, oy:0, dx:0, dy:0 };
+const zone = $("joyZone"), jb = $("joyBase"), jk = $("joyKnob");
+function joySet(px, py){
+  let dx = px - joy.ox, dy = py - joy.oy;
+  const m = Math.hypot(dx, dy), max = 50;
+  if (m > max){ dx = dx/m*max; dy = dy/m*max; }
+  joy.dx = dx/max; joy.dy = dy/max;
+  jk.style.left = (joy.ox + dx - 23) + "px";
+  jk.style.top  = (joy.oy + dy - 23) + "px";
+}
+zone.addEventListener("pointerdown", e => {
+  joy.active = true; joy.id = e.pointerId;
+  joy.ox = e.clientX; joy.oy = e.clientY;
+  jb.style.display = jk.style.display = "block";
+  jb.style.left = (joy.ox-52)+"px"; jb.style.top = (joy.oy-52)+"px";
+  joySet(e.clientX, e.clientY);
+  zone.setPointerCapture(e.pointerId);
+});
+zone.addEventListener("pointermove", e => { if (joy.active && e.pointerId===joy.id) joySet(e.clientX, e.clientY); });
+function joyEnd(e){ if (e.pointerId===joy.id){ joy.active=false; joy.dx=joy.dy=0;
+  jb.style.display=jk.style.display="none"; } }
+zone.addEventListener("pointerup", joyEnd);
+zone.addEventListener("pointercancel", joyEnd);
+
+const keys = {};
+window.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
+window.addEventListener("keyup",   e => keys[e.key.toLowerCase()] = false);
+
+// ---------- Aktionen ----------
+let gather = null; // { until, total, label, done }
+function triggerFlood(){
+  toast("🌊 Eine Flutwelle überschwemmt den Strand!", 4000);
+  sfx("thunder");
+  drifts.forEach(d=>scene.remove(d)); drifts.length=0;
+  if((S.raft||0)>0 && (S.raft||0)<3){
+    S.raft=Math.max(0,(S.raft||0)-1); updateRaftMesh();
+    setTimeout(()=>toast("🛶 Die Welle hat dein Floß beschädigt!",3500),2000);
+  }
+  setTimeout(()=>{ spawnDrift(); if(Math.random()<0.65) spawnDrift(); },4200);
+  saveGame();
+}
+function startGather(label, secs, done){
+  if (gather) return;
+  gather = { until: secs, total: secs, label, done };
+  $("progWrap").style.display = "block";
+  $("progLabel").textContent = label;
+}
+function cancelGather(){ gather = null; $("progWrap").style.display = "none"; }
+
+function nearest(arr, maxD){
+  let best = null, bd = maxD;
+  for (const o of arr){
+    const d = Math.hypot(o.position.x - player.position.x, o.position.z - player.position.z);
+    if (d < bd){ bd = d; best = o; }
+  }
+  return best;
+}
+function isNight(){ return S.hours >= 20 || S.hours < 5; }
+
+function computeActions(){
+  const acts = [];
+  const speedy = has("messer") ? 0.55 : 1;
+
+  // Floß / Flucht — höchste Priorität am Bauplatz
+  const dr = Math.hypot(player.position.x - RAFT.x, player.position.z - RAFT.z);
+  if (dr < 4.5 && !gather){
+    const st = S.raft || 0;
+    if (st === 0) acts.push({ at:raftG.position, label:"🛶 Rumpf bauen", run(){
+      if (!canAfford({holz:12, faser:6})){ toast("Benötigt: 🪵 12 · 🌾 6"); return; }
+      startGather("Rumpf bauen …", 3.5, () => {
+        take("holz",12); take("faser",6); S.raft = 1; updateRaftMesh();
+        toast("🛶 Der Rumpf steht! Halte Ausschau nach angespültem Segeltuch."); saveGame();
+      });
+    }});
+    else if (st === 1) acts.push({ at:raftG.position, label:"⛵ Mast & Segel", run(){
+      if (!canAfford({holz:8, faser:8, segel:1})){ toast("Benötigt: 🪵 8 · 🌾 8 · ⛵ 1 Segeltuch"); return; }
+      startGather("Mast errichten …", 3.5, () => {
+        take("holz",8); take("faser",8); take("segel",1); S.raft = 2; updateRaftMesh();
+        toast("⛵ Das Segel ist gesetzt! Jetzt fehlt nur noch Proviant."); saveGame();
+      });
+    }});
+    else if (st === 2) acts.push({ at:raftG.position, label:"🧺 Proviant verstauen", run(){
+      const cooked = (S.inv.fischGeb||0) + (S.inv.krabbeGeb||0) + (S.inv.konserve||0);
+      if (cooked < 4 || !has("flasche") || S.bottle < 3){
+        toast("Benötigt: 4 zubereitete Speisen + volle Flasche"); return;
+      }
+      startGather("Verstauen …", 2.5, () => {
+        let need = 4;
+        ["fischGeb","krabbeGeb","konserve"].forEach(id => {
+          const n = Math.min(need, S.inv[id]||0); take(id, n); need -= n;
+        });
+        S.bottle = 0; S.raft = 3; updateRaftMesh();
+        toast("🧺 Alles verstaut. Das Floß ist startklar!"); saveGame();
+      });
+    }});
+    else acts.push({ at:raftG.position, label:"🌅 In See stechen", run: winGame });
+  }
+
+  // Strandgut hat Priorität
+  const dft = nearest(drifts, 2.4);
+  if (dft) acts.push({ at:dft.position, label:"🎁 Untersuchen", run(){
+    startGather("Untersuchen …", 1.2, () => {
+      const it = dft.userData.item;
+      scene.remove(dft); drifts.splice(drifts.indexOf(dft), 1);
+      if (it === "messer"){ give("messer"); S.found.messer = true; toast("🔪 Ein Messer! Du sammelst nun schneller."); }
+      else if (it === "flasche"){ give("flasche"); S.found.flasche = true; toast("🍼 Eine Flasche! Fülle sie am Teich."); }
+      else if (it === "kiste"){
+        give("leuchtrakete"); S.found.kiste=true;
+        toast("📦 Militärkoffer! Eine Leuchtrakete — dein letztes Ass.", 5000);
+      }
+      else if (it === "segel"){
+        if (S.found.segel || has("segel") || (S.raft||0) >= 2){
+          give("faser", 3); toast("🪢 Ein altes Tuch — du zerlegst es zu 3 Fasern.");
+        } else { give("segel"); S.found.segel = true; toast("⛵ Segeltuch! Genau das braucht dein Floß."); }
+      }
+      else if (it === "konserve"){ give("konserve"); toast("🥫 Eine Konserve — wertvolle Nahrung!"); }
+      else if (it === "seil"){ give("faser", 3); toast("🪢 Ein Stück Seil → 3 Fasern."); }
+      else { give("holz", 2); toast("🪵 Eine Holzplanke → 2 Holz."); }
+      saveGame();
+    });
+  }});
+
+  const palm = nearest(palms.concat(jungleTrees).filter(p => p.userData.cool <= 0), 2.6);
+  if (palm) acts.push({ at:palm.position, label:"🪵 Holz sammeln", run(){
+    const wspd = has("axt") ? 0.4 : speedy;
+    const yld = has("axt") ? 3 : 2;
+    startGather("Holz sammeln …", 2.2*wspd, () => {
+      give("holz", yld); palm.userData.cool = 60; palm.visible=false;
+      toast(`🪵 +${yld} Holz`); saveGame();
+    });
+  }});
+
+  const rock = nearest(rocks.filter(r => r.userData.cool <= 0), 2.4);
+  if (rock) acts.push({ at:rock.position, label:"🪨 Stein abbauen", run(){
+    startGather("Stein abbauen …", 2.6*speedy, () => {
+      give("stein", 2); rock.userData.cool = 90; rock.visible=false;
+      toast("🪨 +2 Stein"); saveGame();
+    });
+  }});
+
+  const bush = nearest(bushes.filter(b => b.userData.cool <= 0), 2.2);
+  if (bush) acts.push({ at:bush.position, label:"🫐 Beeren pflücken", run(){
+    startGather("Pflücken …", 1.6*speedy, () => {
+      give("beere", 2); bush.userData.cool = 45;
+      if (Math.random() < 0.6){ give("faser", 1); toast("🫐 +2 Beeren, 🌾 +1 Faser"); }
+      else toast("🫐 +2 Beeren");
+      saveGame();
+    });
+  }});
+
+  const coco = nearest(coconuts, 1.8);
+  if (coco) acts.push({ at:coco.position, label:"🥥 Aufheben", run(){
+    sfx("pickup"); give("kokos", 1);
+    scene.remove(coco); coconuts.splice(coconuts.indexOf(coco), 1);
+    toast("🥥 +1 Kokosnuss");
+    setTimeout(() => { // an anderer Stelle nachwachsen lassen
+      const s = randSpot(1.0, 2.4);
+      if (s){ const o = mkCoconut(); placeOnTerrain(o, s.x, s.z);
+        o.userData.type = "coco"; scene.add(o); coconuts.push(o); }
+    }, 90000);
+    saveGame();
+  }});
+
+  const crab = nearest(crabs, 1.6);
+  if (crab) acts.push({ at:crab.position, label:"🦀 Krabbe fangen", run(){
+    startGather("Anschleichen …", 1.0, () => {
+      const d = Math.hypot(crab.position.x - player.position.x, crab.position.z - player.position.z);
+      if (d < 2.2){ give("krabbe", 1); toast("🦀 Krabbe gefangen! Brate sie am Feuer.");
+        crab.position.copy(randSpotV(0.85, 1.3)); }
+      else toast("Die Krabbe ist entwischt!");
+      saveGame();
+    });
+  }});
+
+  const bana = nearest(bananas.filter(b => b.userData.cool <= 0), 2.2);
+  if (bana) acts.push({ at:bana.position, label:"🍌 Bananen ernten", run(){
+    startGather("Ernten …", 1.6*speedy, () => {
+      give("banane", 2); bana.userData.cool = 75;
+      toast("🍌 +2 Bananen"); saveGame();
+    });
+  }});
+
+  const boar = nearest(boars.filter(b => !b.userData.dead), 2.8);
+  if (boar && has("speer")) acts.push({ at:boar.position, label:"🐗 Jagen", run(){
+    startGather("Anpirschen …", 1.4, () => {
+      if (Math.random() < 0.55){
+        give("fleischRoh", 3); boar.userData.dead = 120; boar.visible = false;
+        sfx("pickup"); sfx("pickup"); toast("🐗 Erlegt! +3 rohes Fleisch — brate es am Feuer.");
+      } else {
+        S.health = Math.max(1, S.health - 12);
+        sfx("danger"); toast("💢 Das Wildschwein erwischt dich! −12 Gesundheit");
+        const s = jungleSpot(); if (s){ boar.position.set(s.x, terrainH(s.x, s.z), s.z); }
+      }
+      saveGame();
+    });
+  }});
+
+  // Höhle erkunden
+  const dc = Math.hypot(player.position.x - CAVE.x, player.position.z - CAVE.z);
+  if (dc < 3.5 && (S.cave||0) < 3){
+    acts.push({ at:caveG.position, label:"🕳️ Höhle erkunden", run(){
+      if (!has("fackel")){ toast("Zu dunkel — du brauchst eine Fackel."); return; }
+      take("fackel", 1); enterCaveMode();
+    }});
+  }
+
+  // Gipfel: Ausschau halten
+  const dmt = Math.hypot(player.position.x - MOUNT.x, player.position.z - MOUNT.z);
+  if (dmt < 5 && !(S.peak)){
+    acts.push({ label:"🔭 Ausschau halten", run(){
+      startGather("Spähen …", 2.0, () => {
+        S.peak = 1; spawnDrift();
+        drifts.forEach(d => { if (d.userData.beam) d.userData.beam.visible = true; });
+        toast("🔭 Was für eine Aussicht! Angespültes erkennst du nun von Weitem.", 4200);
+        saveGame();
+      });
+    }});
+  }
+
+  // 🌿 Palmzweige sammeln
+  const frond = nearest(fronds, 2.2);
+  if (frond) acts.push({ at:frond.position, label:"🌿 Palmzweige nehmen", run(){
+    sfx("pickup"); give("palmzweig",2);
+    scene.remove(frond); fronds.splice(fronds.indexOf(frond),1);
+    toast("🌿 +2 Palmzweige — für ein Rauchsignal");
+    setTimeout(()=>{ const s=randSpot(1.2,3.2); if(s){ const o=mkFrond(); placeOnTerrain(o,s.x,s.z); scene.add(o); fronds.push(o); } },90000);
+    saveGame();
+  }});
+
+  // 🌱 Heilkraut am Berg
+  const herb = nearest(herbs, 2.0);
+  if (herb) acts.push({ at:herb.position, label:"🌱 Heilkraut ernten", run(){
+    sfx("pickup"); give("heilkraut",1);
+    scene.remove(herb); herbs.splice(herbs.indexOf(herb),1);
+    toast("🌱 Heilkraut — heilt Vergiftung (Rucksack öffnen)");
+    setTimeout(()=>{ const s=randSpot(6.0,14.0); if(s){ const o=mkHerb(); placeOnTerrain(o,s.x,s.z); scene.add(o); herbs.push(o); } },120000);
+    saveGame();
+  }});
+
+  // 🚢 Rauchsignal (Schiff sichtbar + Feuer + Palmzweige)
+  if (shipMesh.visible && has("palmzweig") && (S.inv.palmzweig||0)>=2){
+    const nearFire = nearest(fires, 5.5);
+    if (nearFire) acts.push({ at:nearFire.position, label:"🌿 Rauchsignal!", run(){
+      take("palmzweig",2);
+      startGather("Rauchsignal …", 3.0, ()=>{
+        sfx("discover");
+        toast("🚢 Das Schiff dreht bei — du wirst gerettet!", 5000);
+        shipMesh.visible=false; if($("shipHUD")) $("shipHUD").style.display="none";
+        setTimeout(winGameRescue, 4500);
+      });
+    }});
+  }
+
+  // 🚀 Leuchtrakete abfeuern (Schiff sichtbar + Rakete im Rucksack)
+  if (shipMesh.visible && has("leuchtrakete")) acts.push({ label:"🚀 Leuchtrakete!", run(){
+    take("leuchtrakete"); sfx("discover");
+    toast("🚀 Die Rakete leuchtet auf — das Schiff ändert Kurs!", 4500);
+    shipMesh.visible=false; if($("shipHUD")) $("shipHUD").style.display="none";
+    setTimeout(winGameRescue, 4200);
+  }});
+
+  // Teich
+  const dp = Math.hypot(player.position.x - CFG.pond.x, player.position.z - CFG.pond.z);
+  if (dp < CFG.pond.r + 1.6){
+    acts.push({ label:"💧 Trinken", run(){
+      startGather("Trinken …", 1.0, () => { S.thirst = Math.min(100, S.thirst + 35); toast("💧 Erfrischend!"); });
+    }});
+    if (has("flasche") && S.bottle < 3)
+      acts.push({ label:"🍼 Flasche füllen", run(){ S.bottle = 3; toast("🍼 Flasche gefüllt (3 Schlucke)."); }});
+  }
+
+  // Fischen am Meer
+  const hHere = terrainH(player.position.x, player.position.z);
+  if (has("speer") && hHere < 1.0 && dp > CFG.pond.r + 3){
+    acts.push({ label:"🐟 Fischen", run(){
+      startGather("Fischen …", 2.8, () => {
+        if (Math.random() < 0.6){ give("fischRoh", 1); toast("🐟 Ein Fisch! Roh riskant — besser braten."); }
+        else toast("Diesmal hat nichts gebissen …");
+        saveGame();
+      });
+    }});
+  }
+
+  // Feuer: Braten & Schlafen
+  const fire = nearest(fires, 4.5);
+  if (fire){
+    if (has("fischRoh")) acts.push({ at:fire.position, label:"🍢 Fisch braten", run(){
+      startGather("Braten …", 2.0, () => { take("fischRoh"); give("fischGeb"); toast("🍢 Fisch gebraten!"); saveGame(); });
+    }});
+    if (has("krabbe")) acts.push({ at:fire.position, label:"🍤 Krabbe braten", run(){
+      startGather("Braten …", 2.0, () => { take("krabbe"); give("krabbeGeb"); toast("🍤 Krabbe gebraten!"); saveGame(); });
+    }});
+    if (has("fleischRoh")) acts.push({ at:fire.position, label:"🍖 Fleisch braten", run(){
+      startGather("Braten …", 2.2, () => { take("fleischRoh"); give("fleischGeb"); toast("🍖 Fleisch gebraten — eine Festmahlzeit!"); saveGame(); });
+    }});
+  }
+  const shelter = nearest(shelters, 3.5);
+  if (isNight() && (fire || shelter)){
+    acts.push({ label:"😴 Schlafen", run: sleep });
+  } else if (isNight() && S.energy < 25){
+    // Hinweis als Pseudo-Aktion
+    acts.push({ label:"😴 Schlafplatz nötig!", run(){
+      toast("Du brauchst ein Feuer oder einen Unterschlupf zum Schlafen.");
+    }});
+  }
+  return acts.slice(0, 2);
+}
+
+function randSpotV(a, b){
+  const s = randSpot(a, b) || { x:10, z:30 };
+  return new THREE.Vector3(s.x, terrainH(s.x, s.z), s.z);
+}
+
+function sleep(){
+  S.day += 1; S.hours = 6;
+  S.energy = 100;
+  S.hunger = Math.max(5, S.hunger - 18);
+  S.thirst = Math.max(5, S.thirst - 22);
+  // 🦅 Adler stiehlt Nahrung ohne Unterschlupf
+  if (!nearest(shelters, 3.5)){
+    const foods = ["beere","banane","kokos","fischGeb","krabbeGeb"].filter(id=>has(id));
+    if (foods.length && Math.random()<0.4){
+      const stolen = foods[Math.floor(Math.random()*foods.length)];
+      take(stolen,1);
+      setTimeout(()=>toast(`🦅 Ein Adler stahl nachts dein ${ITEMS[stolen].em} ${ITEMS[stolen].nm}! Bau einen Unterschlupf.`,4500),700);
+    }
+  }
+  toast(`🌅 Tag ${S.day} beginnt. Du fühlst dich erholt.`);
+  saveGame();
+}
+
+// Aktionsbuttons — pointerdown statt click (reagiert sofort, kein Doppeltipp nötig)
+const act1 = $("act1"), act2 = $("act2");
+let actions = [];
+act1.addEventListener("pointerdown", e => { e.preventDefault(); if (actions[0]) actions[0].run(); });
+act2.addEventListener("pointerdown", e => { e.preventDefault(); if (actions[1]) actions[1].run(); });
+function setBtn(b, label){
+  if (!label){ if (b.style.display !== "none") b.style.display = "none"; return; }
+  if (b.style.display !== "block") b.style.display = "block";
+  if (b.textContent !== label) b.textContent = label;
+}
+function refreshActions(){
+  if (ghostState){
+    setBtn(act1, "✓ Setzen"); setBtn(act2, "✗ Abbrechen");
+    actions=[{run:confirmGhost},{run:cancelGhost}];
+    hiRing.visible=false; return;
+  }
+  actions = computeActions();
+  const l0 = (gather || !actions[0]) ? null : actions[0].label;
+  const l1 = (gather || !actions[1]) ? null : actions[1].label;
+  setBtn(act1, l0); setBtn(act2, l1);
+  // Markierungsring auf das aktive Ziel setzen
+  if (!gather && actions[0] && actions[0].at){
+    hiRing.position.set(actions[0].at.x, actions[0].at.y + 0.08, actions[0].at.z);
+    hiRing.visible = true;
+  } else hiRing.visible = false;
+}
+
+// ---------- Tag/Nacht ----------
+const SKY = {
+  day:   { sky:0xaee3f5, fog:0xaee3f5, sun:1.05, hemi:0.55, amb:0.18, moon:0.00, nf:0.0, fogN:60, fogF:150 },
+  dusk:  { sky:0xf2a567, fog:0xe09a6a, sun:0.45, hemi:0.32, amb:0.12, moon:0.06, nf:0.35, fogN:50, fogF:120 },
+  night: { sky:0x0d1b2e, fog:0x0d1b2e, sun:0.02, hemi:0.10, amb:0.05, moon:0.30, nf:1.0, fogN:30, fogF:85 },
+  dawn:  { sky:0xf7c98c, fog:0xeab98b, sun:0.40, hemi:0.30, amb:0.12, moon:0.05, nf:0.30, fogN:50, fogF:120 },
+};
+const skyC = new THREE.Color(), fogC = new THREE.Color();
+function lerpSky(a, b, t){
+  skyC.set(a.sky).lerp(new THREE.Color(b.sky), t);
+  fogC.set(a.fog).lerp(new THREE.Color(b.fog), t);
+  scene.background = skyC.clone();
+  scene.fog.color.copy(fogC);
+  sun.intensity  = a.sun  + (b.sun  - a.sun)  * t;
+  hemi.intensity = a.hemi + (b.hemi - a.hemi) * t;
+  amb.intensity  = a.amb  + (b.amb  - a.amb)  * t;
+  moonLight.intensity = a.moon + (b.moon - a.moon) * t;
+  const nf = a.nf + (b.nf - a.nf) * t;
+  starMat.opacity = nf * 0.9;
+  moonMat.opacity = nf;
+  scene.fog.near = a.fogN + (b.fogN - a.fogN) * t;
+  scene.fog.far  = a.fogF + (b.fogF - a.fogF) * t;
+}
+function updateSky(){
+  if(caveMode){
+    scene.background.setHex(0x010101);
+    scene.fog.color.setHex(0x010101);
+    scene.fog.near=2; scene.fog.far=13;
+    sun.intensity=0; hemi.intensity=0.03; amb.intensity=0.04; moonLight.intensity=0;
+    return;
+  }
+  const h = S.hours;
+  if (h >= 7 && h < 17)         lerpSky(SKY.day, SKY.day, 0);
+  else if (h >= 17 && h < 18.5) lerpSky(SKY.day,  SKY.dusk,  (h-17)/1.5);
+  else if (h >= 18.5 && h < 20) lerpSky(SKY.dusk, SKY.night, (h-18.5)/1.5);
+  else if (h >= 20 || h < 5)    lerpSky(SKY.night, SKY.night, 0);
+  else                          lerpSky(SKY.night, SKY.day, (h-5)/2);
+  // Sonnenstand — folgt dem Spieler, damit die Schattenkamera immer passt
+  const t = Math.max(0, Math.min(1, (h - 6) / 12));
+  const a = t * Math.PI;
+  sun.position.set(player.position.x + Math.cos(a)*60,
+                   Math.sin(a)*60 + 12,
+                   player.position.z + 25);
+  sun.target.position.copy(player.position);
+  sun.target.updateMatrixWorld();
+  // Wetter dämpft Licht und Sicht
+  if (wB > 0.01){
+    sun.intensity  *= (1 - wB);
+    hemi.intensity *= (1 - wB*0.6);
+    amb.intensity  *= (1 - wB*0.4);
+    scene.background.lerp(GRAYC, wB*0.7);
+    scene.fog.color.lerp(GRAYC, wB*0.7);
+    scene.fog.far *= (1 - wB*0.45);
+  }
+}
+
+// ---------- Spielschleife ----------
+
+
+// =================== AUDIO SYSTEM v2 ===================
+let AC = null, mG = null, audioOn = true;
+const AMB = {};
+let thunderTimer = 14;
+
+// Zuverlässiger Start direkt aus User-Geste (async wegen iOS resume-Pflicht)
+async function startAudio(){
+  try {
+    if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
+    if (AC.state === "suspended") await AC.resume();
+    if (!mG) _buildAmbient();
+  } catch(e){ console.warn("Audio:", e); }
+}
+
+function _buildAmbient(){
+  mG = AC.createGain(); mG.gain.value = 0.85; mG.connect(AC.destination);
+  const sr = AC.sampleRate;
+  const nb = AC.createBuffer(1, sr*8, sr);
+  const nd = nb.getChannelData(0);
+  for(let i=0;i<nd.length;i++) nd[i]=Math.random()*2-1;
+  // Jeder Bus in eigenem IIFE, damit keine Variablenkollisionen
+  function ns(){ const s=AC.createBufferSource(); s.buffer=nb; s.loop=true; s.start(); return s; }
+  // Ocean: innerG für LFO, outerG für _sg — kein Leck
+  (function(){
+    const s=ns(),f1=AC.createBiquadFilter(),f2=AC.createBiquadFilter();
+    f1.type="lowpass"; f1.frequency.value=270; f1.Q.value=0.7;
+    f2.type="highpass"; f2.frequency.value=55;
+    const innerG=AC.createGain(), outerG=AC.createGain();
+    innerG.gain.value=1.0;
+    const lfo=AC.createOscillator(),lg=AC.createGain();
+    lfo.frequency.value=0.13; lg.gain.value=0.18; lfo.start();
+    lfo.connect(lg); lg.connect(innerG.gain);
+    s.connect(f1); f1.connect(f2); f2.connect(innerG); innerG.connect(outerG); outerG.connect(mG);
+    outerG.gain.value=0; AMB.ocean=outerG;
+  })();
+  // Rain
+  (function(){
+    const s=ns(),f1=AC.createBiquadFilter(),f2=AC.createBiquadFilter(),g=AC.createGain();
+    f1.type="highpass"; f1.frequency.value=2400;
+    f2.type="lowpass";  f2.frequency.value=9000;
+    s.connect(f1); f1.connect(f2); f2.connect(g); g.connect(mG);
+    g.gain.value=0; AMB.rain=g;
+  })();
+  // Wind
+  (function(){
+    const s=ns(),f=AC.createBiquadFilter(),g=AC.createGain();
+    f.type="bandpass"; f.frequency.value=420; f.Q.value=0.35;
+    const lfo=AC.createOscillator(),lg=AC.createGain();
+    lfo.frequency.value=0.08; lg.gain.value=180; lfo.start();
+    lfo.connect(lg); lg.connect(f.frequency);
+    s.connect(f); f.connect(g); g.connect(mG); g.gain.value=0; AMB.wind=g;
+  })();
+  // Nacht: weicher Bandpass-Noise statt Ton — zwei separate Gains
+  (function(){
+    const s=ns(), fHi=AC.createBiquadFilter(), fLo=AC.createBiquadFilter();
+    fHi.type="highpass"; fHi.frequency.value=1200;
+    fLo.type="lowpass";  fLo.frequency.value=3000;
+    const outerG=AC.createGain(); outerG.gain.value=0;
+    s.connect(fHi); fHi.connect(fLo); fLo.connect(outerG); outerG.connect(mG);
+    AMB.night=outerG;
+    // Zusätzlich: tiefes Grillensummen um 600 Hz
+    const s2=ns(), fB=AC.createBiquadFilter(), gB=AC.createGain();
+    fB.type="bandpass"; fB.frequency.value=600; fB.Q.value=4;
+    gB.gain.value=0;
+    s2.connect(fB); fB.connect(gB); gB.connect(mG); AMB.nightLow=gB;
+  })();
+  // Feuer
+  (function(){
+    const s=ns(),f=AC.createBiquadFilter(),g=AC.createGain();
+    f.type="bandpass"; f.frequency.value=340; f.Q.value=0.9;
+    s.connect(f); f.connect(g); g.connect(mG); g.gain.value=0; AMB.fire=g;
+  })();
+  // Dschungel
+  (function(){
+    const s=ns(),f=AC.createBiquadFilter(),g=AC.createGain();
+    f.type="bandpass"; f.frequency.value=1800; f.Q.value=0.5;
+    const lfo=AC.createOscillator(),lg=AC.createGain();
+    lfo.frequency.value=0.22; lg.gain.value=600; lfo.start();
+    lfo.connect(lg); lg.connect(f.frequency);
+    s.connect(f); f.connect(g); g.connect(mG); g.gain.value=0; AMB.jungle=g;
+  })();
+}
+
+function _sg(gn, tgt, dt){ gn.gain.value += (tgt-gn.gain.value)*Math.min(1,dt*5); }
+
+function updateAmbience(dt){
+  if (!AC || !mG || !AMB.ocean) return;
+  mG.gain.value = audioOn ? 0.85 : 0;
+  if (!audioOn) return;
+  const hH = terrainH(player.position.x, player.position.z);
+  const wt = (S && S.weather) ? S.weather.type : "clear";
+  _sg(AMB.ocean,  Math.max(0, 1-(hH-0.8)/2.2)*0.30, dt);
+  const dj = Math.hypot(player.position.x-JUNGLE.x, player.position.z-JUNGLE.z);
+  _sg(AMB.jungle, Math.max(0, 1-dj/(JUNGLE.r+3))*0.16, dt);
+  _sg(AMB.rain,   wt==="storm"?0.50:wt==="rain"?0.30:0, dt);
+  _sg(AMB.wind,   wt==="storm"?0.24:0, dt);
+  const inN = S && (S.hours>=20||S.hours<5);
+  _sg(AMB.night,  inN?0.08:0, dt);
+  if(AMB.nightLow) _sg(AMB.nightLow, inN?0.06:0, dt);
+  let fDist=999;
+  fires.forEach(f=>{
+    const d=Math.hypot(f.position.x-player.position.x,f.position.z-player.position.z);
+    if(d<fDist) fDist=d;
+  });
+  _sg(AMB.fire, Math.max(0,1-fDist/7)*0.26, dt);
+}
+
+function sfx(id){
+  if (!AC || !mG || !audioOn) return;
+  if (AC.state !== "running") { AC.resume(); return; }
+  const t = AC.currentTime;
+  function osc(type,freq,vol,atk,dec,st){
+    const s=st||t, o=AC.createOscillator(), g=AC.createGain();
+    o.type=type; o.frequency.value=freq;
+    g.gain.setValueAtTime(0,s); g.gain.linearRampToValueAtTime(vol,s+atk);
+    g.gain.exponentialRampToValueAtTime(0.0001,s+atk+dec);
+    o.connect(g); g.connect(mG); o.start(s); o.stop(s+atk+dec+0.05);
+  }
+  function noiseB(dur,freq,q,vol,st){
+    const s=st||t, b=AC.createBuffer(1,Math.floor(AC.sampleRate*dur),AC.sampleRate);
+    const d=b.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
+    const src=AC.createBufferSource(), flt=AC.createBiquadFilter(), g=AC.createGain();
+    src.buffer=b; flt.type="bandpass"; flt.frequency.value=freq; flt.Q.value=q;
+    g.gain.setValueAtTime(vol,s); g.gain.exponentialRampToValueAtTime(0.0001,s+dur);
+    src.connect(flt); flt.connect(g); g.connect(mG); src.start(s);
+  }
+  switch(id){
+    case "chop":
+      { const o=AC.createOscillator(),g=AC.createGain(); o.type="square";
+        o.frequency.setValueAtTime(140,t); o.frequency.exponentialRampToValueAtTime(55,t+0.13);
+        g.gain.setValueAtTime(0.42,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.20);
+        o.connect(g); g.connect(mG); o.start(t); o.stop(t+0.25); }
+      noiseB(0.14,750,1.4,0.28); break;
+    case "stone":    noiseB(0.22,950,2.8,0.55); break;
+    case "pickup":   [0,0.09].forEach((off,i)=>osc("sine",[440,660][i],0.20,0.02,0.16,t+off)); break;
+    case "eat":      osc("sine",300,0.17,0.01,0.15); break;
+    case "drink":    [0,0.10,0.20].forEach(off=>osc("sine",190+Math.random()*55,0.14,0.02,0.10,t+off)); break;
+    case "craft":    [0,0.07,0.14].forEach((off,i)=>osc("sine",[330,415,495][i],0.22,0.03,0.40,t+off)); break;
+    case "fire_lit":
+      [0,0.06,0.13].forEach((off,i)=>{
+        const fr=[200,255,320][i], s=t+off, o=AC.createOscillator(),
+              flt=AC.createBiquadFilter(), g=AC.createGain();
+        o.type="sawtooth"; o.frequency.value=fr; flt.type="lowpass"; flt.frequency.value=500;
+        g.gain.setValueAtTime(0,s); g.gain.linearRampToValueAtTime(0.22,s+0.05);
+        g.gain.exponentialRampToValueAtTime(0.0001,s+0.60);
+        o.connect(flt); flt.connect(g); g.connect(mG); o.start(s); o.stop(s+0.70);
+      }); break;
+    case "danger":
+      { const o=AC.createOscillator(),flt=AC.createBiquadFilter(),g=AC.createGain();
+        o.type="sawtooth"; o.frequency.value=62; flt.type="lowpass"; flt.frequency.value=150;
+        g.gain.setValueAtTime(0.26,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.48);
+        o.connect(flt); flt.connect(g); g.connect(mG); o.start(t); o.stop(t+0.52); } break;
+    case "discover": [0,0.12,0.24].forEach((off,i)=>osc("sine",[523,659,784][i],0.24,0.04,0.52,t+off)); break;
+    case "thunder":
+      { const b=AC.createBuffer(1,Math.floor(AC.sampleRate*1.5),AC.sampleRate);
+        const d=b.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
+        const src=AC.createBufferSource(),flt=AC.createBiquadFilter(),g=AC.createGain();
+        src.buffer=b; flt.type="lowpass"; flt.frequency.value=160;
+        g.gain.setValueAtTime(0.78,t); g.gain.exponentialRampToValueAtTime(0.0001,t+1.60);
+        src.connect(flt); flt.connect(g); g.connect(mG); src.start(t); } break;
+    case "win":      [0,0.19,0.38,0.57].forEach((off,i)=>osc("sine",[523,659,784,1046][i],0.28,0.05,1.20,t+off)); break;
+  }
+}
+// =================== END AUDIO ===================
+
+// =================== GHOST PLACEMENT ===================
+let ghostState = null;
+
+function mkFireGhost(){
+  const g=new THREE.Group();
+  const tr=c=>new THREE.MeshLambertMaterial({color:c,transparent:true,opacity:0.45,depthWrite:false});
+  for(let i=0;i<6;i++){
+    const st=new THREE.Mesh(new THREE.DodecahedronGeometry(0.14,0),tr(0x9a9a9f));
+    const a=i/6*Math.PI*2; st.position.set(Math.cos(a)*0.5,0.1,Math.sin(a)*0.5); g.add(st);
+  }
+  const log=new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.08,0.8,5),tr(0x6e4726));
+  log.rotation.z=Math.PI/2; log.position.y=0.12; g.add(log);
+  const flame=new THREE.Mesh(new THREE.ConeGeometry(0.26,0.8,6),tr(0xffa23b));
+  flame.position.y=0.55; g.add(flame); return g;
+}
+function mkShelterGhost(){
+  const g=new THREE.Group();
+  const tr=c=>new THREE.MeshLambertMaterial({color:c,transparent:true,opacity:0.45,depthWrite:false,side:THREE.DoubleSide});
+  const p1=new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.07,1.6,5),tr(0x8a5a33));
+  p1.position.set(-0.9,0.8,0); g.add(p1);
+  const p2=p1.clone(); p2.position.x=0.9; g.add(p2);
+  const roof=new THREE.Mesh(new THREE.PlaneGeometry(2.2,2.0),tr(0xc9b46a));
+  roof.position.set(0,1.05,-0.55); roof.rotation.x=-1.05; g.add(roof); return g;
+}
+function startGhostPlacement(type){
+  if(ghostState) return;
+  if(gather) cancelGather();
+  closeSheets();
+  const mesh=type==="feuer"?mkFireGhost():mkShelterGhost();
+  scene.add(mesh); ghostState={type,mesh};
+  toast("Lauf zur Zielposition → ✓ Setzen", 3500);
+}
+function cancelGhost(){
+  if(!ghostState) return;
+  scene.remove(ghostState.mesh);
+  const costs=ghostState.type==="feuer"?{holz:4,stein:2}:{holz:8,faser:6};
+  for(const k in costs) give(k,costs[k]);
+  ghostState=null; toast("Abgebrochen — Materialien erstattet.");
+}
+function ghostCollision(pos){
+  // Zu nah an Büschen, Bäumen, Felsen, anderen Feuern oder Unterständen?
+  const tooClose = (arr, minD) => arr.some(o =>
+    o.visible !== false && Math.hypot(o.position.x-pos.x, o.position.z-pos.z) < minD);
+  if (tooClose(bushes, 1.4))   return "zu nah an einem Busch";
+  if (tooClose(rocks, 1.2))    return "zu nah an einem Felsen";
+  if (tooClose(palms.concat(jungleTrees), 1.5)) return "zu nah an einem Baum";
+  if (tooClose(fires, 4.0))    return "zu nah an einem anderen Feuer";
+  if (tooClose(shelters, 3.5)) return "zu nah an einem Unterschlupf";
+  if (terrainH(pos.x, pos.z) < 1.1) return "zu nah am Wasser";
+  if (terrainH(pos.x, pos.z) > 9.0) return "zu steil am Berg";
+  return null;
+}
+function confirmGhost(){
+  if(!ghostState) return;
+  const pos=ghostState.mesh.position.clone(), type=ghostState.type;
+  const block = ghostCollision(pos);
+  if(block){ toast("⛔ Hier nicht möglich — "+block+".", 2800); return; }
+  scene.remove(ghostState.mesh); ghostState=null;
+  if(type==="feuer"){
+    const f=shadowify(mkFire()); f.position.copy(pos); scene.add(f); fires.push(f);
+    S.fires.push({x:pos.x,z:pos.z}); sfx("fire_lit"); toast("🔥 Lagerfeuer entzündet!");
+  } else {
+    const sh=shadowify(mkShelter()); sh.position.copy(pos); scene.add(sh); shelters.push(sh);
+    S.shelters.push({x:sh.position.x,z:sh.position.z}); sfx("craft"); toast("⛺ Unterschlupf gebaut!");
+  }
+  saveGame();
+}
+// =================== END GHOST ===================
+
+
+
+// =================== CAVE 3D ===================
+const CAVE_OX=-300, CAVE_OZ=-60, CAVE_CELL=4;
+let caveMode=false, caveGrid=[], caveW=19, caveH=15;
+let caveItems=[], caveItemsGot=new Set(), caveExX=17, caveExY=13;
+const caveMeshes=[], caveItemGs=[];
+let caveExG=null, caveTorch=null;
+let caveEntryX=8, caveEntryZ=42;
+
+function generateCave(){
+  const LW=9, LH=7; caveW=LW*2+1; caveH=LH*2+1;
+  caveGrid=Array(caveH).fill(null).map(()=>Array(caveW).fill(1));
+  const vis=Array(LH).fill(null).map(()=>Array(LW).fill(false));
+  function carve(lx,ly){
+    vis[ly][lx]=true; caveGrid[ly*2+1][lx*2+1]=0;
+    const dirs=[[0,-1],[1,0],[0,1],[-1,0]].sort(()=>Math.random()-0.5);
+    for(const [dx,dy] of dirs){
+      const nx=lx+dx,ny=ly+dy;
+      if(nx>=0&&nx<LW&&ny>=0&&ny<LH&&!vis[ny][nx]){
+        caveGrid[ly*2+1+dy][lx*2+1+dx]=0; carve(nx,ny);
+      }
+    }
+  }
+  carve(0,0);
+  const dead=[];
+  for(let r=1;r<caveH-1;r++) for(let c=1;c<caveW-1;c++){
+    if(caveGrid[r][c]!==0||(c===1&&r===1)) continue;
+    const op=[[0,1],[0,-1],[1,0],[-1,0]].filter(([dc,dr])=>caveGrid[r+dr][c+dc]===0).length;
+    if(op===1) dead.push({x:c,y:r});
+  }
+  dead.sort((a,b)=>Math.hypot(b.x-1,b.y-1)-Math.hypot(a.x-1,a.y-1));
+  const ex=dead.shift(); caveExX=ex.x; caveExY=ex.y;
+  const defs=[{id:"konserve",em:"\u{1F96B}"},{id:"heilkraut",em:"\u{1F331}"},{id:"holz",em:"\u{1FAB5}",amt:3}];
+  caveItems=dead.slice(0,3).map((de,i)=>({x:de.x,y:de.y,...defs[i]}));
+}
+
+function buildCave3D(){
+  caveMeshes.forEach(m=>scene.remove(m)); caveMeshes.length=0;
+  caveItemGs.forEach(g=>scene.remove(g)); caveItemGs.length=0;
+  if(caveExG){scene.remove(caveExG);caveExG=null;}
+  const flMat=new THREE.MeshLambertMaterial({color:0x1e1610});
+  const wlMat=new THREE.MeshLambertMaterial({color:0x141210});
+  const clMat=new THREE.MeshBasicMaterial({color:0x040302});
+  const FG=new THREE.PlaneGeometry(CAVE_CELL,CAVE_CELL);
+  const WG=new THREE.BoxGeometry(CAVE_CELL,5,CAVE_CELL);
+  const CG=new THREE.PlaneGeometry(CAVE_CELL,CAVE_CELL);
+  for(let r=0;r<caveH;r++) for(let c=0;c<caveW;c++){
+    const wx=CAVE_OX+c*CAVE_CELL+CAVE_CELL*.5;
+    const wz=CAVE_OZ+r*CAVE_CELL+CAVE_CELL*.5;
+    if((caveGrid[r]||[])[c]===1){
+      const w=new THREE.Mesh(WG,wlMat); w.position.set(wx,2.5,wz);
+      scene.add(w); caveMeshes.push(w);
+    } else {
+      const f=new THREE.Mesh(FG,flMat); f.rotation.x=-Math.PI/2; f.position.set(wx,0,wz);
+      scene.add(f); caveMeshes.push(f);
+      const ce=new THREE.Mesh(CG,clMat); ce.rotation.x=Math.PI/2; ce.position.set(wx,5.1,wz);
+      scene.add(ce); caveMeshes.push(ce);
+    }
+  }
+  caveItemGs.length=0;
+  const cols=[0xffd060,0x70ff90,0xff9840];
+  caveItems.forEach((it,i)=>{
+    const g=new THREE.Group();
+    const s=new THREE.Mesh(new THREE.SphereGeometry(.3,8,6),
+      new THREE.MeshBasicMaterial({color:cols[i%3]}));
+    s.position.y=.9; g.add(s);
+    const l=new THREE.PointLight(cols[i%3],.95,8,2); l.position.y=1.4; g.add(l);
+    g.position.set(CAVE_OX+it.x*CAVE_CELL+CAVE_CELL*.5,0,CAVE_OZ+it.y*CAVE_CELL+CAVE_CELL*.5);
+    scene.add(g); caveItemGs.push(g);
+  });
+  caveExG=new THREE.Group();
+  const sv=new THREE.Mesh(new THREE.PlaneGeometry(1.8,2.4),
+    new THREE.MeshBasicMaterial({color:0x88c4ff,side:THREE.DoubleSide}));
+  sv.position.y=1.3; sv.rotation.y=Math.PI*.25; caveExG.add(sv);
+  const el=new THREE.PointLight(0x60a4ff,1.1,10,2); el.position.y=1.7; caveExG.add(el);
+  caveExG.position.set(CAVE_OX+caveExX*CAVE_CELL+CAVE_CELL*.5,0,CAVE_OZ+caveExY*CAVE_CELL+CAVE_CELL*.5);
+  scene.add(caveExG);
+}
+
+function enterCaveMode(){
+  caveMode=true; caveItemsGot=new Set();
+  generateCave(); buildCave3D();
+  caveEntryX=player.position.x; caveEntryZ=player.position.z;
+  player.position.set(CAVE_OX+CAVE_CELL*1.5, 0, CAVE_OZ+CAVE_CELL*1.5);
+  vel.x=0; vel.z=0;
+  if(!caveTorch){caveTorch=new THREE.PointLight(0xffa040,2.1,22,2);scene.add(caveTorch);}
+  caveTorch.visible=true;
+  ocean.visible=false; pondMesh.visible=false;
+  sfx("discover");
+  setTimeout(()=>toast("Erkunde die Höhle — leuchtende Punkte sind Items, blau ist der Ausgang.",4000),4800);
+}
+
+function exitCaveMode(){
+  caveMode=false;
+  if(caveTorch) caveTorch.visible=false;
+  ocean.visible=true; pondMesh.visible=true;
+  player.position.set(caveEntryX,terrainH(caveEntryX,caveEntryZ),caveEntryZ);
+  vel.x=0; vel.z=0;
+  caveMeshes.forEach(m=>scene.remove(m)); caveMeshes.length=0;
+  caveItemGs.forEach(g=>scene.remove(g)); caveItemGs.length=0;
+  if(caveExG){scene.remove(caveExG);caveExG=null;}
+}
+
+function updateCave3D(dt){
+  if(!caveMode) return;
+  if(caveTorch){
+    caveTorch.position.set(player.position.x,player.position.y+1.7,player.position.z);
+    caveTorch.intensity=2.0+Math.sin(performance.now()*.007)*.35+Math.sin(performance.now()*.019)*.12;
+  }
+  if(caveExG) caveExG.rotation.y+=dt*.5;
+  const gc=Math.floor((player.position.x-CAVE_OX)/CAVE_CELL);
+  const gr=Math.floor((player.position.z-CAVE_OZ)/CAVE_CELL);
+  const labels=["Konserve","Heilkraut","Holz 3x"];
+  caveItems.forEach((it,i)=>{
+    const key=it.x+","+it.y;
+    if(it.x===gc&&it.y===gr&&!caveItemsGot.has(key)){
+      caveItemsGot.add(key); give(it.id,it.amt||1); sfx("pickup");
+      toast(labels[i]+" gefunden!");
+      if(it.id==="heilkraut") setTimeout(()=>toast('Verwittertes Notizbuch: Tag 34 …'),1400);
+      if(caveItemGs[i]) caveItemGs[i].visible=false;
+    }
+  });
+  if(gc===caveExX&&gr===caveExY&&(S.cave||0)<3){
+    sfx("discover"); S.cave=3;
+    const needSail=!S.found.segel&&!has("segel")&&(S.raft||0)<2;
+    if(needSail){ give("segel"); S.found.segel=true;
+      toast("Das Segeltuch! Unbenutzt — er hat es nie geschafft. Du schon.",5500);
+    } else { give("konserve",2); toast("Alter Vorrat — Konserven.",3000); }
+    saveGame();
+    setTimeout(()=>{ exitCaveMode(); toast("Du kehrst ans Tageslicht zurueck.",2800); },4000);
+  }
+}
+// =================== END CAVE 3D ===================
+
+const clock = new THREE.Clock();
+const vel = { x: 0, z: 0 };
+let walkT = 0, running = false, dead = false;
+
+function tryMove(nx, nz){
+  if(caveMode){
+    const c=Math.floor((nx-CAVE_OX)/CAVE_CELL);
+    const r=Math.floor((nz-CAVE_OZ)/CAVE_CELL);
+    if(r<0||r>=caveH||c<0||c>=caveW) return false;
+    return (caveGrid[r]&&caveGrid[r][c]!==1);
+  }
+  const h = terrainH(nx, nz);
+  if (h < 0.78) return false;
+  const dp = Math.hypot(nx - CFG.pond.x, nz - CFG.pond.z);
+  if (dp < CFG.pond.r - 0.4) return false;
+  return true;
+}
+
+function update(dt){
+  // Zeit
+  S.hours += dt * 24 / CFG.dayLength;
+  if (S.hours >= 24){ S.hours -= 24; S.day += 1; toast(`🌅 Tag ${S.day}`); }
+
+  // Bewegung mit Trägheit
+  let mx = joy.dx, mz = joy.dy;
+  if (keys["w"]||keys["arrowup"]) mz -= 1;
+  if (keys["s"]||keys["arrowdown"]) mz += 1;
+  if (keys["a"]||keys["arrowleft"]) mx -= 1;
+  if (keys["d"]||keys["arrowright"]) mx += 1;
+  const mlen = Math.hypot(mx, mz);
+  let tx = 0, tz = 0;
+  if (mlen > 0.12 && !gather){
+    mx /= Math.max(1, mlen); mz /= Math.max(1, mlen);
+    // Isometrische Ausrichtung: Bildschirm-oben = Welt (-x,-z), Bildschirm-rechts = Welt (+x,-z)
+    const wx = (mx + mz) * 0.7071, wz = (mz - mx) * 0.7071;
+    const sp = CFG.speed * (S.energy < 12 ? 0.55 : 1);
+    tx = wx * sp; tz = wz * sp;
+  }
+  // sanft beschleunigen, etwas zügiger abbremsen
+  const accel = (tx || tz) ? 6.5 : 11;
+  vel.x += (tx - vel.x) * Math.min(1, dt * accel);
+  vel.z += (tz - vel.z) * Math.min(1, dt * accel);
+  const spd = Math.hypot(vel.x, vel.z);
+  const moving = spd > 0.45;
+  if (moving && !gather){
+    const nx = player.position.x + vel.x * dt, nz = player.position.z + vel.z * dt;
+    if (tryMove(nx, player.position.z)) player.position.x = nx; else vel.x = 0;
+    if (tryMove(player.position.x, nz)) player.position.z = nz; else vel.z = 0;
+    // weiche Drehung in Laufrichtung
+    const targA = Math.atan2(vel.x, vel.z);
+    let da = targA - player.rotation.y;
+    da = Math.atan2(Math.sin(da), Math.cos(da));
+    player.rotation.y += da * Math.min(1, dt * 12);
+    walkT += dt * 10 * (spd / CFG.speed);
+  }
+  player.position.y = caveMode ? 0 : terrainH(player.position.x, player.position.z) + Math.abs(Math.sin(walkT))*0.06*(moving?1:0);
+
+  // Ghost folgt Spieler (2.5 Einheiten voraus)
+  if (ghostState){
+    const fwd=new THREE.Vector3(Math.sin(player.rotation.y),0,Math.cos(player.rotation.y));
+    const gx=player.position.x+fwd.x*2.5, gz=player.position.z+fwd.z*2.5;
+    ghostState.mesh.position.set(gx, terrainH(gx,gz), gz);
+    ghostState.mesh.rotation.y = player.rotation.y;
+    const ps=0.92+Math.sin(performance.now()*0.005)*0.07;
+    ghostState.mesh.scale.set(ps,ps,ps);
+    // Rotes Tinting wenn Platzierung blockiert
+    const blocked = ghostCollision(ghostState.mesh.position) !== null;
+    ghostState.mesh.traverse(o=>{
+      if(o.isMesh && o.material && o.material.color){
+        o.material.color.setHex(blocked ? 0xff4444 : o.userData.ghostBaseColor||0xffffff);
+        if(!o.userData.ghostBaseColor) o.userData.ghostBaseColor = o.material.color.getHex();
+      }
+    });
+    // Button-Label: grüner Haken oder rotes X
+    setBtn(act1, blocked ? "⛔ Hier nicht" : "✓ Setzen");
+  }
+  // Kamera folgt
+  cam.position.set(player.position.x + 17, player.position.y + 19, player.position.z + 17);
+  cam.lookAt(player.position.x, player.position.y + 0.8, player.position.z);
+
+  // Werte
+  const mul = moving ? 1.35 : 1;
+  S.hunger = Math.max(0, S.hunger - CFG.decay.hunger * dt * mul);
+  S.thirst = Math.max(0, S.thirst - CFG.decay.thirst * dt * mul);
+  S.energy = Math.max(0, S.energy - CFG.decay.energy * dt * mul);
+  let dmg = 0;
+  if (S.thirst <= 0) dmg += 2.0;
+  if (S.hunger <= 0) dmg += 1.4;
+  if (S.energy <= 0) dmg += 0.4;
+  if (dmg > 0) S.health = Math.max(0, S.health - dmg*dt);
+  else if (S.hunger > 40 && S.thirst > 40) S.health = Math.min(100, S.health + 0.8*dt);
+
+  if (S.health <= 0 && !dead){ dead = true; gameOver(); return; }
+
+  // Cooldowns
+  [palms, jungleTrees, rocks, bushes, bananas].forEach(arr => arr.forEach(o => {
+    if (o.userData.cool > 0){
+      o.userData.cool -= dt;
+      if (o.userData.cool <= 0){ o.userData.cool=0; o.visible=true; }
+    }
+  }));
+
+  // Wildschwein-KI
+  boars.forEach(b => {
+    if (b.userData.dead > 0){
+      b.userData.dead -= dt;
+      if (b.userData.dead <= 0){
+        const s = jungleSpot(); if (s){ b.position.set(s.x, terrainH(s.x, s.z), s.z); }
+        b.visible = true;
+      }
+      return;
+    }
+    b.userData.t -= dt;
+    if (b.userData.t <= 0){ b.userData.dir = Math.random()*Math.PI*2; b.userData.t = 2 + Math.random()*2.5; }
+    const nx = b.position.x + Math.sin(b.userData.dir)*1.1*dt;
+    const nz = b.position.z + Math.cos(b.userData.dir)*1.1*dt;
+    const dj = Math.hypot(nx - JUNGLE.x, nz - JUNGLE.z);
+    const hh = terrainH(nx, nz);
+    if (dj < JUNGLE.r && hh > 1.5 && hh < 6){
+      b.position.set(nx, hh, nz); b.rotation.y = b.userData.dir;
+    } else b.userData.t = 0;
+  });
+
+  // Krabben-KI
+  crabs.forEach(c => {
+    c.userData.t -= dt;
+    if (c.userData.t <= 0){ c.userData.dir = Math.random()*Math.PI*2; c.userData.t = 1.5 + Math.random()*2; }
+    const dpl = Math.hypot(c.position.x - player.position.x, c.position.z - player.position.z);
+    let dir = c.userData.dir, sp = 0.9;
+    if (dpl < 3.2){ dir = Math.atan2(c.position.x - player.position.x, c.position.z - player.position.z); sp = 2.0; }
+    const nx = c.position.x + Math.sin(dir)*sp*dt, nz = c.position.z + Math.cos(dir)*sp*dt;
+    const h = terrainH(nx, nz);
+    if (h > 0.8 && h < 1.5){ c.position.x = nx; c.position.z = nz; c.position.y = h; c.rotation.y = dir; }
+    else c.userData.t = 0;
+  });
+
+  // Strandgut
+  S.nextDrift -= dt;
+  if (S.nextDrift <= 0){ spawnDrift(); S.nextDrift = 90 + Math.random()*60; }
+  drifts.forEach(d => { if (d.userData.glow) d.userData.glow.rotation.y += dt*2.5; });
+
+  // Feuer flackern
+  fires.forEach(f => {
+    if (f.userData.flame){ const s = 0.85 + Math.sin(performance.now()*0.012 + f.position.x)*0.15;
+      f.userData.flame.scale.set(s, s, s); }
+    if (f.userData.light) f.userData.light.intensity = 1.0 + Math.sin(performance.now()*0.02)*0.18;
+  });
+
+  // Ozeanwellen
+  const tNow = performance.now() * 0.001;
+  for (let i = 0; i < oceanPos.count; i++){
+    const ox = oceanPos.getX(i), oz = oceanPos.getZ(i);
+    oceanPos.setY(i, Math.sin(ox*0.15 + tNow*1.2)*0.10 + Math.cos(oz*0.12 + tNow*0.9)*0.08);
+  }
+  oceanPos.needsUpdate = true;
+  oceanGeo.computeVertexNormals();
+
+  // Wolken ziehen
+  clouds.forEach(c => {
+    c.position.x += c.userData.v * dt;
+    if (c.position.x > 100) c.position.x = -100;
+  });
+
+  // Möwen kreisen
+  gulls.forEach(g => {
+    const u = g.userData;
+    u.a += u.s * dt;
+    g.position.set(Math.cos(u.a)*u.r, u.h + Math.sin(tNow*0.7 + u.f)*0.8, Math.sin(u.a)*u.r);
+    g.rotation.y = -u.a;
+    const flap = Math.sin(tNow*7 + u.f) * 0.55;
+    u.w1.rotation.z = flap; u.w2.rotation.z = -flap;
+  });
+
+  // Arme schwingen beim Laufen
+  const swing = Math.sin(walkT) * 0.75 * Math.min(1, spd / CFG.speed);
+  player.userData.armL.rotation.x = swing;
+  player.userData.armR.rotation.x = -swing;
+
+  // Markierungsring pulsiert
+  if (hiRing.visible){
+    const ps = 1 + Math.sin(tNow*5)*0.12;
+    hiRing.scale.set(ps, ps, ps);
+  }
+
+
+  // Wetter
+  S.weather.t -= dt * 24 / CFG.dayLength;
+  if (S.weather.t <= 0){
+    const r = Math.random();
+    if (S.weather.type === "clear"){
+      if (r < 0.30)      setWeather("rain",  3 + Math.random()*3);
+      else if (r < 0.42) setWeather("storm", 2 + Math.random()*1.5);
+      else               setWeather("clear", 5 + Math.random()*7);
+    } else setWeather("clear", 6 + Math.random()*8);
+  }
+  const wTarget = S.weather.type === "storm" ? 0.78 : S.weather.type === "rain" ? 0.5 : 0;
+  wB += (wTarget - wB) * Math.min(1, dt * 0.8);
+
+  // Regenpartikel
+  if (wB > 0.03){
+    rain.visible = true;
+    rain.position.set(player.position.x, player.position.y, player.position.z);
+    const rp = rainGeo.attributes.position;
+    const fall = (14 + wB*16) * dt;
+    for (let i = 0; i < RAIN_N; i++){
+      let y = rp.getY(i) - fall;
+      if (y < 0) y += 16;
+      rp.setY(i, y);
+    }
+    rp.needsUpdate = true;
+    rainMat.opacity = Math.min(0.8, wB * 1.3);
+  } else { rain.visible = false; rainMat.opacity = 0; }
+
+  // Regen füllt die Flasche
+  if (S.weather.type !== "clear" && has("flasche") && S.bottle < 3){
+    rainFillT += dt;
+    if (rainFillT > 15){
+      rainFillT = 0; S.bottle++;
+      sfx("drink"); sfx("drink"); toast(`🍼 Der Regen füllt deine Flasche (${S.bottle}/3).`);
+    }
+  } else rainFillT = 0;
+
+  // 🚢 Schiff spawnen
+  S.shipCD -= dt;
+  if (S.shipCD <= 0 && !shipMesh.visible && S.day >= 7){
+    const angle = Math.random()*Math.PI*2, dist = 72;
+    shipMesh.position.set(Math.cos(angle)*dist, CFG.waterLevel+0.4, Math.sin(angle)*dist);
+    shipMesh.rotation.y = -angle + Math.PI*0.5;
+    shipMesh.visible = true;
+    shipRealTimer = 90;
+    toast("🚢 Ein Schiff am Horizont! Du hast 90 Sekunden!", 4500);
+    sfx("discover");
+    S.shipCD = (S.peak ? 70 : 110) + Math.random()*50;
+  }
+  if (shipMesh.visible){
+    shipRealTimer -= dt;
+    shipMesh.position.y = CFG.waterLevel + 0.3 + Math.sin(performance.now()*0.0008)*0.25;
+    const cnt = Math.ceil(shipRealTimer);
+    if ($("shipHUD")) {
+      $("shipHUD").style.display = "block";
+      $("shipCnt").textContent = cnt+"s";
+    }
+    if (shipRealTimer <= 0){
+      shipMesh.visible = false;
+      if ($("shipHUD")) $("shipHUD").style.display = "none";
+      toast("Das Schiff verschwindet am Horizont …", 3000);
+    }
+  } else if ($("shipHUD")) $("shipHUD").style.display = "none";
+
+  // 🐍 Schlangenencounter im Dschungel
+  {
+    const djP = Math.hypot(player.position.x-JUNGLE.x, player.position.z-JUNGLE.z);
+    S.snakeCD = Math.max(0, S.snakeCD - dt);
+    if (djP < JUNGLE.r && S.snakeCD <= 0 && moving && Math.random() < 0.004){
+      S.poison = Math.max(S.poison||0, 2 + Math.random()*1.5);
+      S.snakeCD = 200;
+      toast("🐍 Eine Giftschlange! Du wirst gebissen — deine Gesundheit sinkt!", 4500);
+      sfx("danger");
+    }
+  }
+
+  // ☠️ Giftwirkung
+  if (S.poison > 0){
+    S.poison -= dt * 24 / CFG.dayLength;
+    S.health = Math.max(1, S.health - 0.7*dt);
+    if ($("poisonStat")) $("poisonStat").style.display = "flex";
+    if (S.poison <= 0){ S.poison=0; toast("Das Gift lässt nach. Du erholt dich …",3500); }
+  } else if ($("poisonStat")) $("poisonStat").style.display = "none";
+
+  // Donner bei Sturm
+  if (S.weather.type === "storm"){
+    thunderTimer -= dt;
+    if (thunderTimer <= 0){ sfx("thunder"); thunderTimer = 7 + Math.random()*12; }
+  } else thunderTimer = 7 + Math.random()*8;
+
+  // Sturm zehrt — außer im Schutz von Unterschlupf oder Höhle
+  if (S.weather.type === "storm"){
+    const dcv = Math.hypot(player.position.x - CAVE.x, player.position.z - CAVE.z);
+    if (!nearest(shelters, 4.5) && dcv > 3.5){
+      S.energy = Math.max(0, S.energy - 0.5*dt);
+    }
+  }
+
+  // Sammeln-Fortschritt
+  if (gather){
+    gather.until -= dt;
+    $("progBar").firstElementChild.style.width = (100*(1 - gather.until/gather.total)) + "%";
+    if (gather.until <= 0){
+      const _lbl = gather.label;
+      const d = gather.done; cancelGather();
+      S.energy = Math.max(0, S.energy - 2.5); // Arbeiten kostet Kraft
+      const _smap={"Holz sammeln …":"chop","Stein abbauen …":"stone","Untersuchen …":"pickup","Pflücken …":"pickup","Ernten …":"pickup","Anschleichen …":"pickup","Trinken …":"drink","Erkunden …":"discover","Spähen …":"discover","Braten …":"pickup","Rumpf bauen …":"craft","Mast errichten …":"craft","Verstauen …":"craft"};
+      const _sid = _smap[_lbl]; if(_sid) sfx(_sid);
+      d();
+    }
+  }
+
+  updateAmbience(dt);
+  updateSky();
+  updateBars();
+  updateCave3D(dt);
+  refreshActions();
+}
+
+let acc = 0;
+function loop(){
+  if (!running) return;
+  requestAnimationFrame(loop);
+  const dt = Math.min(0.05, clock.getDelta());
+  update(dt);
+  renderer.render(scene, cam);
+  acc += dt;
+  if (acc > 8){ acc = 0; saveGame(); }
+}
+
+// ---------- Start / Restart / Game Over ----------
+function rebuildStructures(){
+  fires.forEach(f => scene.remove(f)); fires.length = 0;
+  shelters.forEach(s => scene.remove(s)); shelters.length = 0;
+  (S.fires||[]).forEach(p => { const f = shadowify(mkFire()); placeOnTerrain(f, p.x, p.z); scene.add(f); fires.push(f); });
+  (S.shelters||[]).forEach(p => { const s = shadowify(mkShelter()); placeOnTerrain(s, p.x, p.z); scene.add(s); shelters.push(s); });
+}
+function startGame(state){
+  S = state;
+  if (typeof S.raft !== "number") S.raft = 0;
+  if (typeof S.cave !== "number") S.cave = 0;
+  if (typeof S.peak !== "number") S.peak = 0;
+  if (typeof S.driftN !== "number") S.driftN = 0;
+  if (typeof S.shipCD !== "number" || S.shipCD < 100) S.shipCD = 220;
+  if (typeof S.poison !== "number") S.poison = 0;
+  if (typeof S.snakeCD !== "number") S.snakeCD = 60;
+  if (!S.weather || !S.weather.type) S.weather = { type:"clear", t: 8 };
+  player.position.set(typeof S.px === "number" ? S.px : 8, 0, typeof S.pz === "number" ? S.pz : 42);
+  rebuildStructures();
+  updateRaftMesh();
+  dead = false;
+  $("start").style.display = "none";
+  $("gameover").style.display = "none";
+  $("win").style.display = "none";
+  running = true;
+  clock.getDelta();
+  loop();
+  if (!S.tutorial){
+    S.tutorial = 1;
+    setTimeout(()=>toast("🕹️ Links: Laufen · Rechts: Handeln", 3500), 600);
+    setTimeout(()=>toast("💧 Finde den Süßwasserteich im Inselinneren!", 3800), 4400);
+    setTimeout(()=>toast("🛠️ Sammle 4 Holz + 2 Stein für ein Lagerfeuer.", 3800), 8600);
+    setTimeout(()=>toast("🛶 Am Südstrand liegt ein Wrack — dort beginnt deine Flucht.", 4200), 12800);
+    setTimeout(()=>toast("🌑 Im Westen liegt ein dunkler Dschungel, im Norden ein Berg mit einer Höhle …", 4500), 17400);
+  }
+}
+function winGameRescue(){
+  running=false; clearSave(); sfx("win");
+  $("winSub").textContent = "Durch Signal gerettet — Tag "+S.day;
+  $("win").style.display="flex";
+}
+function winGame(){
+  running = false;
+  clearSave();
+  sfx("win"); $("winSub").textContent = `Nach ${S.day} ${S.day===1?"Tag":"Tagen"} entkommen`;
+  $("win").style.display = "flex";
+}
+function gameOver(){
+  running = false;
+  saveGame(); clearSave();
+  $("goSub").textContent = `Du hast ${S.day} ${S.day===1?"Tag":"Tage"} überlebt`;
+  $("gameover").style.display = "flex";
+}
+$("btnNew").onclick = () => { clearSave(); startGame(freshState()); };
+$("btnRetry").onclick = () => startGame(freshState());
+$("btnWinNew").onclick = () => startGame(freshState());
+$("btnContinue").onclick = () => { const s = loadGame(); startGame(s || freshState()); };
+(function initStart(){
+  if (loadGame()) $("btnContinue").style.display = "inline-block";
+})();
+
+// Position mitspeichern
+setInterval(() => { if (S && running){ S.px = player.position.x; S.pz = player.position.z; } }, 2000);
+document.addEventListener("visibilitychange", () => { if (document.hidden && S) saveGame(); });
+
+// ---------- Resize ----------
+function resize(){
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  const a = window.innerWidth / window.innerHeight, v = CFG.viewSize;
+  cam.left = -v*a/2; cam.right = v*a/2; cam.top = v/2; cam.bottom = -v/2;
+  cam.updateProjectionMatrix();
+}
+window.addEventListener("resize", resize);
+resize();
+renderer.render(scene, cam); // erstes Bild hinter dem Startscreen
+</script>
+</body>
+</html>
