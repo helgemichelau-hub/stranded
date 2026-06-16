@@ -1433,7 +1433,7 @@ function updateSky(){
   if(caveMode){
     scene.background.setHex(0x020101);
     scene.fog.color.setHex(0x020101);
-    scene.fog.near=28; scene.fog.far=55;
+    scene.fog.near=26; scene.fog.far=52;
     sun.intensity=0; hemi.intensity=0.06; amb.intensity=0.14; moonLight.intensity=0;
     return;
   }
@@ -1746,18 +1746,18 @@ function buildCave3D(){
   const wlMat=[wlSide,wlSide,wlTop,wlTop,wlSide,wlSide];
   const clMat=new THREE.MeshBasicMaterial({color:0x0a0806});
   const FG=new THREE.PlaneGeometry(CAVE_CELL,CAVE_CELL);
-  const WG=new THREE.BoxGeometry(CAVE_CELL,6,CAVE_CELL);
+  const WG=new THREE.BoxGeometry(CAVE_CELL,3,CAVE_CELL);
   const CG=new THREE.PlaneGeometry(CAVE_CELL,CAVE_CELL);
   for(let r=0;r<caveH;r++) for(let c=0;c<caveW;c++){
     const wx=CAVE_OX+c*CAVE_CELL+CAVE_CELL*.5;
     const wz=CAVE_OZ+r*CAVE_CELL+CAVE_CELL*.5;
     if((caveGrid[r]||[])[c]===1){
-      const w=new THREE.Mesh(WG,wlMat); w.position.set(wx,3,wz);
+      const w=new THREE.Mesh(WG,wlMat); w.position.set(wx,1.5,wz);
       scene.add(w); caveMeshes.push(w);
     } else {
       const f=new THREE.Mesh(FG,flMat); f.rotation.x=-Math.PI/2; f.position.set(wx,0,wz);
       scene.add(f); caveMeshes.push(f);
-      const ce=new THREE.Mesh(CG,clMat); ce.rotation.x=Math.PI/2; ce.position.set(wx,5.1,wz);
+      const ce=new THREE.Mesh(CG,clMat); ce.rotation.x=Math.PI/2; ce.position.set(wx,3.1,wz);
       scene.add(ce); caveMeshes.push(ce);
     }
   }
