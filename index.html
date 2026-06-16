@@ -165,9 +165,13 @@
 </div>
 
 <div id="gameover" class="overlay">
-  <h1>DAS ENDE</h1>
-  <div class="sub" id="goSub">Tag 1</div>
-  <p id="goText">Die Insel hat dich besiegt. Doch jeder Versuch lehrt dich etwas Neues.</p>
+  <div id="goIcon" style="font-size:48px;margin-bottom:4px">💀</div>
+  <h1 style="margin-bottom:2px">DAS ENDE</h1>
+  <div class="sub" id="goSub" style="margin-bottom:10px">Tag 1</div>
+  <div id="goCause" style="color:#c8855a;font-size:13px;font-weight:700;margin-bottom:14px;letter-spacing:.5px"></div>
+  <div id="goStats" style="display:grid;grid-template-columns:1fr 1fr;gap:8px 20px;
+    background:rgba(255,255,255,.05);border-radius:12px;padding:14px 20px;margin-bottom:16px;width:100%;max-width:280px"></div>
+  <p id="goText" style="font-size:13px;color:#a0907a;max-width:280px;line-height:1.6;margin-bottom:18px"></p>
   <button id="btnRetry">Noch einmal versuchen</button>
 </div>
 
@@ -2204,7 +2208,46 @@ function winGame(){
 function gameOver(){
   running = false;
   saveGame(); clearSave();
-  $("goSub").textContent = `Du hast ${S.day} ${S.day===1?"Tag":"Tage"} überlebt`;
+
+  // --- Todesursache ---
+  const cause = S.thirst <= 2 ? "Verdurstet"
+              : S.hunger <= 2 ? "Verhungert"
+              : S.poison > 0  ? "An Gift gestorben"
+              : "Den Verletzungen erlegen";
+  $("goSub").textContent = "Tag " + S.day + " · " + Math.floor(S.hours) + ":00 Uhr";
+  $("goCause").textContent = "☠️ " + cause;
+
+  // --- Icon je Überlebensdauer ---
+  const icons = ["💀","☠️","🪦","😰","😮","😟"];
+  $("goIcon").textContent = S.day <= 2 ? "💀" : S.day <= 5 ? "😰" : S.day <= 10 ? "🌴" : "🏆";
+
+  // --- Stat-Grid ---
+  const inv = S.inv || {};
+  const totalRes = Object.values(inv).reduce((a,b)=>a+b,0);
+  const statItems = [
+    ["📅","Tage überlebt", S.day],
+    ["🌊","Überquert", S.raft >= 3 ? "Ja" : "Nein"],
+    ["🏔️","Gipfel", S.peak ? "Ja ✓" : "Nein"],
+    ["⛏️","Höhle", S.cave >= 1 ? "Erkundet" : "Nicht"],
+    ["🎒","Gesammelt", totalRes + " Items"],
+    ["🔥","Lagerfeuer", (S.fires || []).length]
+  ];
+  $("goStats").innerHTML = statItems.map(([ic,lb,val])=>
+    '<div style="text-align:right;font-size:18px">' + ic + '</div>' +
+    '<div><span style="font-size:10px;color:#8a7a6a;display:block;line-height:1.1">' + lb + '</span>' +
+    '<span style="font-size:14px;font-weight:700;color:#e0c898">' + val + '</span></div>'
+  ).join('');
+
+  // --- Flavour-Text ---
+  const texts = [
+    [1,  "Kaum gelandet, schon gefallen. Die Insel kennt keine Gnade."],
+    [3,  "Ein harter Anfang. Doch du weißt jetzt, wo das Wasser ist."],
+    [7,  "Drei Tage — du hast gekämpft. Beim nächsten Mal vielleicht länger."],
+    [14, "Eine Woche. Du hast gespürt, wie die Insel atmet."],
+    [99, "Zwei Wochen Überlebenskampf. Dein Name verdient Respekt."]
+  ];
+  $("goText").textContent = (texts.find(([d])=>S.day<=d)||texts[texts.length-1])[1];
+
   $("gameover").style.display = "flex";
 }
 $("btnNew").onclick = () => { clearSave(); startGame(freshState()); };
