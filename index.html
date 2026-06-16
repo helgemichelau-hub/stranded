@@ -1433,7 +1433,7 @@ function updateSky(){
   if(caveMode){
     scene.background.setHex(0x020101);
     scene.fog.color.setHex(0x020101);
-    scene.fog.near=21; scene.fog.far=42;
+    scene.fog.near=28; scene.fog.far=55;
     sun.intensity=0; hemi.intensity=0.06; amb.intensity=0.14; moonLight.intensity=0;
     return;
   }
@@ -1741,16 +1741,18 @@ function buildCave3D(){
   caveItemGs.forEach(g=>scene.remove(g)); caveItemGs.length=0;
   if(caveExG){scene.remove(caveExG);caveExG=null;}
   const flMat=new THREE.MeshLambertMaterial({color:0x7a5a3a});
-  const wlMat=new THREE.MeshLambertMaterial({color:0x5c4230});
+  const wlSide=new THREE.MeshLambertMaterial({color:0x5c4230});
+  const wlTop=new THREE.MeshBasicMaterial({color:0x010100});
+  const wlMat=[wlSide,wlSide,wlTop,wlTop,wlSide,wlSide];
   const clMat=new THREE.MeshBasicMaterial({color:0x0a0806});
   const FG=new THREE.PlaneGeometry(CAVE_CELL,CAVE_CELL);
-  const WG=new THREE.BoxGeometry(CAVE_CELL,5,CAVE_CELL);
+  const WG=new THREE.BoxGeometry(CAVE_CELL,6,CAVE_CELL);
   const CG=new THREE.PlaneGeometry(CAVE_CELL,CAVE_CELL);
   for(let r=0;r<caveH;r++) for(let c=0;c<caveW;c++){
     const wx=CAVE_OX+c*CAVE_CELL+CAVE_CELL*.5;
     const wz=CAVE_OZ+r*CAVE_CELL+CAVE_CELL*.5;
     if((caveGrid[r]||[])[c]===1){
-      const w=new THREE.Mesh(WG,wlMat); w.position.set(wx,2.5,wz);
+      const w=new THREE.Mesh(WG,wlMat); w.position.set(wx,3,wz);
       scene.add(w); caveMeshes.push(w);
     } else {
       const f=new THREE.Mesh(FG,flMat); f.rotation.x=-Math.PI/2; f.position.set(wx,0,wz);
@@ -1869,9 +1871,8 @@ function update(dt){
   let tx = 0, tz = 0;
   if (mlen > 0.12 && !gather){
     mx /= Math.max(1, mlen); mz /= Math.max(1, mlen);
-    // Bewegungsrichtung: Cave=direkt (N/S/E/W), Insel=isometrisch
-    const wx = caveMode ? mx : (mx + mz) * 0.7071;
-    const wz = caveMode ? mz : (mz - mx) * 0.7071;
+    // Isometrische Ausrichtung: Bildschirm-oben = Welt (-x,-z), Bildschirm-rechts = Welt (+x,-z)
+    const wx = (mx + mz) * 0.7071, wz = (mz - mx) * 0.7071;
     const sp = CFG.speed * (S.energy < 12 ? 0.55 : 1);
     tx = wx * sp; tz = wz * sp;
   }
@@ -1913,16 +1914,10 @@ function update(dt){
     // Button-Label: grüner Haken oder rotes X
     setBtn(act1, blocked ? "⛔ Hier nicht" : "✓ Setzen");
   }
-  // Kamera folgt (cave: top-down, insel: isometrisch)
-  if(caveMode){
-    cam.position.set(player.position.x, 22, player.position.z);
-    cam.up.set(0,0,-1);
-    cam.lookAt(player.position.x, 0, player.position.z);
-  } else {
-    cam.up.set(0,1,0);
-    cam.position.set(player.position.x + 17, player.position.y + 19, player.position.z + 17);
-    cam.lookAt(player.position.x, player.position.y + 0.8, player.position.z);
-  }
+  // Kamera folgt (immer isometrisch)
+  cam.up.set(0,1,0);
+  cam.position.set(player.position.x + 17, player.position.y + 19, player.position.z + 17);
+  cam.lookAt(player.position.x, player.position.y + 0.8, player.position.z);
 
   // Werte
   const mul = moving ? 1.35 : 1;
