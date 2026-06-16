@@ -1433,8 +1433,8 @@ function updateSky(){
   if(caveMode){
     scene.background.setHex(0x020101);
     scene.fog.color.setHex(0x020101);
-    scene.fog.near=8; scene.fog.far=28;
-    sun.intensity=0; hemi.intensity=0.04; amb.intensity=0.08; moonLight.intensity=0;
+    scene.fog.near=21; scene.fog.far=42;
+    sun.intensity=0; hemi.intensity=0.06; amb.intensity=0.14; moonLight.intensity=0;
     return;
   }
   const h = S.hours;
@@ -1740,8 +1740,8 @@ function buildCave3D(){
   caveMeshes.forEach(m=>scene.remove(m)); caveMeshes.length=0;
   caveItemGs.forEach(g=>scene.remove(g)); caveItemGs.length=0;
   if(caveExG){scene.remove(caveExG);caveExG=null;}
-  const flMat=new THREE.MeshLambertMaterial({color:0x5a4030});
-  const wlMat=new THREE.MeshLambertMaterial({color:0x3e2e22});
+  const flMat=new THREE.MeshLambertMaterial({color:0x7a5a3a});
+  const wlMat=new THREE.MeshLambertMaterial({color:0x5c4230});
   const clMat=new THREE.MeshBasicMaterial({color:0x0a0806});
   const FG=new THREE.PlaneGeometry(CAVE_CELL,CAVE_CELL);
   const WG=new THREE.BoxGeometry(CAVE_CELL,5,CAVE_CELL);
@@ -1785,9 +1785,10 @@ function enterCaveMode(){
   caveEntryX=player.position.x; caveEntryZ=player.position.z;
   player.position.set(CAVE_OX+CAVE_CELL*1.5, 0, CAVE_OZ+CAVE_CELL*1.5);
   vel.x=0; vel.z=0;
-  if(!caveTorch){caveTorch=new THREE.PointLight(0xffa040,3.5,30,2);scene.add(caveTorch);}
+  if(!caveTorch){caveTorch=new THREE.PointLight(0xffa040,4.5,36,2);scene.add(caveTorch);}
   caveTorch.visible=true;
   ocean.visible=false; pondMesh.visible=false;
+  if(player.material) player.material.emissive = new THREE.Color(0.25,0.12,0.04);
   sfx("discover");
   setTimeout(()=>toast("Erkunde die Höhle — leuchtende Punkte sind Items, blau ist der Ausgang.",4000),4800);
 }
@@ -1796,6 +1797,7 @@ function exitCaveMode(){
   caveMode=false;
   if(caveTorch) caveTorch.visible=false;
   ocean.visible=true; pondMesh.visible=true;
+  if(player.material) player.material.emissive = new THREE.Color(0,0,0);
   player.position.set(caveEntryX,terrainH(caveEntryX,caveEntryZ),caveEntryZ);
   vel.x=0; vel.z=0;
   caveMeshes.forEach(m=>scene.remove(m)); caveMeshes.length=0;
@@ -1807,7 +1809,7 @@ function updateCave3D(dt){
   if(!caveMode) return;
   if(caveTorch){
     caveTorch.position.set(player.position.x,player.position.y+1.7,player.position.z);
-    caveTorch.intensity=3.5+Math.sin(performance.now()*.007)*.5+Math.sin(performance.now()*.019)*.2;
+    caveTorch.intensity=4.5+Math.sin(performance.now()*.007)*.6+Math.sin(performance.now()*.019)*.25;
   }
   if(caveExG) caveExG.rotation.y+=dt*.5;
   const gc=Math.floor((player.position.x-CAVE_OX)/CAVE_CELL);
