@@ -1795,6 +1795,7 @@ function buildCave3D(){
     }
     G.computeVertexNormals(); return G;
   }
+  const stalkMat=new THREE.MeshLambertMaterial({color:0x2e1c0e});
   for(let r=0;r<caveH;r++) for(let c=0;c<caveW;c++){
     const wx=CAVE_OX+c*CAVE_CELL+CAVE_CELL*.5;
     const wz=CAVE_OZ+r*CAVE_CELL+CAVE_CELL*.5;
@@ -1805,11 +1806,36 @@ function buildCave3D(){
       var wMt=[wS,wS,wlTop,wlTop,wS,wS];
       const w=new THREE.Mesh(mkWallGeo(c+r*9),wMt); w.position.set(wx,1.5,wz);
       scene.add(w); caveMeshes.push(w);
+      // Stalaktiten von Wandoberseite haengend
+      var rs=(c*31+r*17)*1699;
+      var ns=1+(c*r+c)%3;
+      for(var si=0;si<ns;si++){
+        rs=(rs*9301+49297)%233280; var ox=(rs/233280-.5)*3.0;
+        rs=(rs*9301+49297)%233280; var oz=(rs/233280-.5)*3.0;
+        rs=(rs*9301+49297)%233280; var sth=0.35+(rs%100)/250;
+        rs=(rs*9301+49297)%233280; var str=0.045+(rs%40)/1000;
+        var sg=new THREE.ConeGeometry(str,sth,5);
+        var sm=new THREE.Mesh(sg,stalkMat);
+        sm.rotation.z=Math.PI; sm.position.set(wx+ox,3-sth*.5,wz+oz);
+        scene.add(sm); caveMeshes.push(sm);
+      }
     } else {
       const f=new THREE.Mesh(FG,flMat); f.rotation.x=-Math.PI/2; f.position.set(wx,0,wz);
       scene.add(f); caveMeshes.push(f);
       const ce=new THREE.Mesh(CG,clMat); ce.rotation.x=Math.PI/2; ce.position.set(wx,3.1,wz);
       scene.add(ce); caveMeshes.push(ce);
+      // Stalagmiten vom Boden (nicht in jedem Korridor)
+      if((c*r+r)%4===0){
+        var rs2=(c*23+r*41)*1337;
+        rs2=(rs2*9301+49297)%233280; var sx=(rs2/233280-.5)*2.4;
+        rs2=(rs2*9301+49297)%233280; var sz=(rs2/233280-.5)*2.4;
+        rs2=(rs2*9301+49297)%233280; var smh=0.15+(rs2%80)/400;
+        rs2=(rs2*9301+49297)%233280; var smr=0.04+(rs2%30)/1000;
+        var smg=new THREE.ConeGeometry(smr,smh,5);
+        var smmesh=new THREE.Mesh(smg,stalkMat);
+        smmesh.position.set(wx+sx,smh*.5,wz+sz);
+        scene.add(smmesh); caveMeshes.push(smmesh);
+      }
     }
   }
   caveItemGs.length=0;
