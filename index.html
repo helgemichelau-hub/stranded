@@ -47,8 +47,8 @@
   /* ---------- Joystick ---------- */
   #joyZone { position:absolute; left:0; bottom:0; width:46%; height:46%; pointer-events:auto; }
   #joyBase { position:fixed; width:104px; height:104px; border-radius:50%; z-index:5; pointer-events:none;
-    background:rgba(255,255,255,.10); border:2px solid rgba(255,255,255,.22); display:none;
-    opacity:0.28; transition:opacity .15s; }
+    background:rgba(0,0,0,.22); border:2px solid rgba(255,255,255,.50); display:none;
+    opacity:0.60; transition:opacity .15s; }
   #joyHint { position:fixed; z-index:7; pointer-events:none; font-size:24px;
     animation:joyPulse 1.8s ease-in-out infinite; transform:translate(-50%,-50%); }
   @keyframes joyPulse { 0%,100%{opacity:.4} 50%{opacity:.85} }
@@ -1887,6 +1887,7 @@ function enterCaveMode(){
   caveTorch.visible=true;
   ocean.visible=false; pondMesh.visible=false;
   if(player.material) player.material.emissive = new THREE.Color(0.25,0.12,0.04);
+  var bce=$("btnCaveExit"); if(bce) bce.style.display="block";
   sfx("discover");
   setTimeout(()=>toast("Erkunde die Höhle — leuchtende Punkte sind Items, blau ist der Ausgang.",4000),4800);
 }
@@ -1896,6 +1897,7 @@ function exitCaveMode(){
   if(caveTorch) caveTorch.visible=false;
   ocean.visible=true; pondMesh.visible=true;
   if(player.material) player.material.emissive = new THREE.Color(0,0,0);
+  var bce=$("btnCaveExit"); if(bce) bce.style.display="none";
   player.position.set(caveEntryX,terrainH(caveEntryX,caveEntryZ),caveEntryZ);
   vel.x=0; vel.z=0;
   caveMeshes.forEach(m=>scene.remove(m)); caveMeshes.length=0;
