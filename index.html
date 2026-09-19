@@ -183,7 +183,7 @@
   <div id="obStep2" style="display:none">
     <div style="font-size:48px;margin-bottom:8px">🛠️</div>
     <h1 style="font-size:24px;margin-bottom:12px">ERSTE SCHRITTE</h1>
-    <div style="background:rgba(255,255,255,.06);border-radius:14px;padding:16px 20px;margin-bottom:16px;max-width:290px;text-align:left"><div style="font-size:13px;color:#c8b08a;line-height:2">💧 Wasser → Regen, Teich, Kokosnuss<br>🍖 Essen → Beeren, Bananen, Fisch<br>🪵 Holz + Stein → Lagerfeuer<br>🔥 Lagerfeuer → Essen kochen</div></div>
+    <div style="background:rgba(255,255,255,.06);border-radius:14px;padding:16px 20px;margin-bottom:16px;max-width:290px;text-align:left"><div style="font-size:13px;color:#c8b08a;line-height:2">💧 Wasser → Teichwasser abkochen!<br>🍖 Essen → Beeren, Bananen, Fisch<br>🪵 Holz + Stein → Lagerfeuer<br>🔥 Feuer frisst Holz — nachlegen!</div></div>
     <button id="obBtn2">Weiter →</button>
   </div>
   <div id="obStep3" style="display:none">
@@ -299,6 +299,11 @@ const CFG = {
   pond: { x: -9, z: 7, r: 3.5 },
 };
 
+// Brennstoff eines Lagerfeuers, gemessen in Spielstunden (1 Holz = 1 Stunde).
+// Bei dayLength 240 entspricht 1 Stunde 10 Realsekunden.
+const FIRE_MAX   = 12;   // Fassungsvermoegen
+const FIRE_START = 6;    // frisch entzuendet
+
 const ITEMS = {
   holz:    { nm:"Holz",       em:"🪵" },
   stein:   { nm:"Stein",      em:"🪨" },
@@ -326,7 +331,7 @@ const ITEMS = {
 
 const RECIPES = [
   { id:"feuer",   nm:"Lagerfeuer",   em:"🔥", cost:{holz:4, stein:2}, place:true,
-    desc:"Braten & nachts schlafen" },
+    desc:"Braten, Wasser abkochen, schlafen — frisst Holz" },
   { id:"speer",   nm:"Speer",        em:"🔱", cost:{holz:2, faser:2}, unique:true,
     desc:"Erlaubt Fischen am Meer" },
   { id:"axt",     nm:"Axt",          em:"🪓", cost:{holz:3, stein:2, faser:1}, unique:true,
@@ -345,7 +350,7 @@ var tutSeen = {};
 var TUT_STEPS = {
   move:    { em:"\uD83D\uDD79\uFE0F", txt:"Bewege dich mit dem Joystick (unten links).", next:"gather" },
   gather:  { em:"\uD83E\uDEB5", txt:"Geh zu einem Baum oder Felsen und tippe rechts auf \u201eHandeln\u201c.", next:"water" },
-  water:   { em:"\uD83D\uDCA7", txt:"Achte auf Durst & Hunger. Trink am Teich im Inselinneren.", next:"fire" },
+  water:   { em:"\uD83D\uDCA7", txt:"Achte auf Durst & Hunger. Teichwasser ist roh riskant \u2014 koch es am Feuer ab.", next:"fire" },
   fire:    { em:"\uD83D\uDD25", txt:"Sammle 4 Holz + 2 Stein, dann baue \u00fcber \uD83D\uDD28 ein Lagerfeuer.", next:"goal" },
   goal:    { em:"\u26F5", txt:"Dein Ziel: Baue am S\u00fcdstrand ein Flo\u00df und entkomme!", next:null }
 };
@@ -444,6 +449,7 @@ function freshState(){
     weather: { type:"clear", t: 8 },
     inv: {},
     bottle: 0,
+    bottleClean: false,      // Wasser in der Flasche abgekocht?
     raft: 0,                   // 0 Wrack · 1 Rumpf · 2 Mast & Segel · 3 startklar
     found: {},                 // einmalige Strandgut-Funde
     fires: [], shelters: [],
@@ -797,7 +803,26 @@ function mkPlayer(){
   const hat = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.26, 10), mat(sk.hat));
   hat.position.y = 1.72; g.add(hat);
   g.userData.armL = armL; g.userData.armR = armR;
+  g.userData.parts = { legs:legs, body:body, armL:armL, armR:armR, head:head, brim:brim, hat:hat };
   return g;
+}
+// BUGFIX: Skin-Wechsel wirkte erst nach komplettem Neuladen der Seite.
+// Faerbt die bestehende Figur um, statt sie einmalig beim Skriptstart zu bauen.
+function applySkin(){
+  try {
+    if (!player || !player.userData || !player.userData.parts) return;
+    var want = META.activeSkin || "default", sk = null;
+    for (var i = 0; i < SKINS.length; i++){ if (SKINS[i].id === want){ sk = SKINS[i]; break; } }
+    if (!sk) sk = SKINS[0];
+    var p = player.userData.parts;
+    p.legs.material.color.setHex(sk.legs);
+    p.body.material.color.setHex(sk.body);
+    p.armL.material.color.setHex(sk.skin);
+    p.armR.material.color.setHex(sk.skin);
+    p.head.material.color.setHex(sk.skin);
+    p.brim.material.color.setHex(sk.hat);
+    p.hat.material.color.setHex(sk.hat);
+  } catch(e){}
 }
 // Schatten für alle Meshes einer Gruppe aktivieren
 function shadowify(g){
@@ -936,6 +961,7 @@ const rainMat = new THREE.PointsMaterial({ color:0xa9cce4, size:1.7,
 const rain = new THREE.Points(rainGeo, rainMat);
 scene.add(rain);
 let wB = 0, rainFillT = 0;        // Wetter-Blendwert & Flaschen-Fülltimer
+let nightWarnT = 0;               // Abstand zwischen Nachtkälte-Hinweisen
 const GRAYC = new THREE.Color(0x7e8b97);
 function setWeather(type, hours){
   const prev = S.weather.type;
@@ -1311,19 +1337,27 @@ function useItem(id){
   const it = ITEMS[id];
   if (id === "flasche"){
     if (S.bottle > 0){ S.bottle--; if(typeof trackChallenge==="function") trackChallenge("drink",1);
-    if(typeof tutStep!=="undefined" && tutStep==="water") tutAdvance("water"); S.thirst = Math.min(100, S.thirst + 30); sfx("drink"); toast("💧 Du trinkst aus der Flasche."); }
+    if(typeof tutStep!=="undefined" && tutStep==="water") tutAdvance("water"); S.thirst = Math.min(100, S.thirst + 30); sfx("drink");
+      if (!S.bottleClean && Math.random() < 0.35){
+        S.health = Math.max(1, S.health - 9);
+        toast("🤢 Ungekochtes Wasser — dir wird übel.");
+      } else toast("💧 Du trinkst aus der Flasche."); }
     else toast("Die Flasche ist leer — fülle sie am Teich.");
     renderInv(); return;
   }
   if (!it.eat) return;
   take(id, 1);
   if (it.eat.cure){
-    S.poison=0; take(id,1);
-    toast("🌱 Heilkraut neutralisiert das Gift!"); sfx("pickup"); renderInv(); return;
+    // BUGFIX: hier stand ein zweites take(id,1) — ein Kraut kostete zwei.
+    S.poison = 0;
+    S.health = Math.min(100, S.health + 18);
+    toast("🌱 Heilkraut neutralisiert das Gift und lindert die Wunden."); sfx("pickup"); renderInv(); return;
   }
   if(typeof trackChallenge==="function") trackChallenge("eat",1);
   S.hunger = Math.min(100, S.hunger + (it.eat.hunger||0));
   S.thirst = Math.min(100, S.thirst + (it.eat.thirst||0));
+  // Nur eine richtige, zubereitete Mahlzeit bringt Gesundheit über die 70er-Grenze.
+  if ((it.eat.hunger||0) >= 25 && !it.eat.risk) S.health = Math.min(100, S.health + 12);
   sfx("eat");
   if (it.eat.risk && Math.random() < 0.35){
     S.health = Math.max(1, S.health - 10);
@@ -1457,8 +1491,8 @@ function computeActions(){
     }});
     else if (st === 2) acts.push({ at:raftG.position, label:"🧺 Proviant verstauen", run(){
       const cooked = (S.inv.fischGeb||0) + (S.inv.krabbeGeb||0) + (S.inv.konserve||0);
-      if (cooked < 4 || !has("flasche") || S.bottle < 3){
-        toast("Benötigt: 4 zubereitete Speisen + volle Flasche"); return;
+      if (cooked < 4 || !has("flasche") || S.bottle < 3 || !S.bottleClean){
+        toast("Benötigt: 4 zubereitete Speisen + volle Flasche mit abgekochtem Wasser", 4000); return;
       }
       startGather("Verstauen …", 2.5, () => {
         let need = 4;
@@ -1638,11 +1672,18 @@ function computeActions(){
   // Teich
   const dp = Math.hypot(player.position.x - CFG.pond.x, player.position.z - CFG.pond.z);
   if (dp < CFG.pond.r + 1.6){
-    acts.push({ label:"💧 Trinken", run(){
-      startGather("Trinken …", 1.0, () => { S.thirst = Math.min(100, S.thirst + 35); toast("💧 Erfrischend!"); });
+    acts.push({ label:"💧 Roh trinken", run(){
+      startGather("Trinken …", 1.0, () => {
+        S.thirst = Math.min(100, S.thirst + 35);
+        if (Math.random() < 0.35){
+          S.health = Math.max(1, S.health - 9);
+          toast("🤢 Das rohe Teichwasser bekommt dir nicht. Koch es besser ab.", 3600);
+        } else toast("💧 Erfrischend — aber riskant.");
+      });
     }});
     if (has("flasche") && S.bottle < 3)
-      acts.push({ label:"🍼 Flasche füllen", run(){ S.bottle = 3; toast("🍼 Flasche gefüllt (3 Schlucke)."); }});
+      acts.push({ label:"🍼 Flasche füllen", run(){ S.bottle = 3; S.bottleClean = false;
+        toast("🍼 Flasche gefüllt — am Feuer abkochen, sonst wird dir übel.", 3600); }});
   }
 
   // Fischen am Meer
@@ -1657,9 +1698,18 @@ function computeActions(){
     }});
   }
 
-  // Feuer: Braten & Schlafen
+  // Feuer: Nachlegen, Abkochen, Braten & Schlafen
   const fire = nearest(fires, 4.5);
   if (fire){
+    const fs = fire.userData.fs;
+    // Dringendes Nachlegen hat Vorrang vor allem anderen am Feuer
+    if (fs && fs.fuel < 2.5 && (S.inv.holz||0) >= 1)
+      acts.push({ at:fire.position, label:"🪵 Feuer nachlegen!", run(){ refuelFire(fire); }});
+    if (has("flasche") && S.bottle > 0 && !S.bottleClean)
+      acts.push({ at:fire.position, label:"♨️ Wasser abkochen", run(){
+        startGather("Abkochen …", 2.5, () => { S.bottleClean = true;
+          toast("♨️ Abgekocht — das Wasser ist jetzt sicher."); saveGame(); });
+      }});
     if (has("fischRoh")) acts.push({ at:fire.position, label:"🍢 Fisch braten", run(){
       startGather("Braten …", 2.0, () => { take("fischRoh"); give("fischGeb"); toast("🍢 Fisch gebraten!"); saveGame(); });
     }});
@@ -1669,6 +1719,8 @@ function computeActions(){
     if (has("fleischRoh")) acts.push({ at:fire.position, label:"🍖 Fleisch braten", run(){
       startGather("Braten …", 2.2, () => { take("fleischRoh"); give("fleischGeb"); toast("🍖 Fleisch gebraten — eine Festmahlzeit!"); saveGame(); });
     }});
+    if (fs && fs.fuel >= 2.5 && fs.fuel < FIRE_MAX - 0.5 && (S.inv.holz||0) >= 1)
+      acts.push({ at:fire.position, label:"🪵 Feuer nachlegen", run(){ refuelFire(fire); }});
   }
   const shelter = nearest(shelters, 3.5);
   if (isNight() && (fire || shelter)){
@@ -1687,13 +1739,48 @@ function randSpotV(a, b){
   return new THREE.Vector3(s.x, terrainH(s.x, s.z), s.z);
 }
 
+// Holz nachlegen: bis zu 3 Scheite auf einmal, gedeckelt durch FIRE_MAX.
+function refuelFire(f){
+  const fs = f.userData.fs; if (!fs) return;
+  const n = Math.min(3, S.inv.holz||0, Math.max(1, Math.ceil(FIRE_MAX - fs.fuel)));
+  if (n <= 0) return;
+  take("holz", n);
+  fs.fuel = Math.min(FIRE_MAX, fs.fuel + n);
+  fs.warned = false;
+  sfx("fire_lit"); haptic(12);
+  toast("🪵 Nachgelegt — das Feuer brennt noch " + Math.round(fs.fuel) + " Stunden.");
+  saveGame();
+}
+
 function sleep(){
+  const shelterNear = !!nearest(shelters, 3.5);
+  const fireMesh    = nearest(fires, 4.5);
+  // Das Feuer brennt die Nacht hindurch weiter und verbraucht Holz.
+  // Ein gedaempftes Feuer brennt ueber Nacht langsamer ab (60 %).
+  const skipped = Math.max(1, (24 - S.hours) + 6) * 0.6;
+  if (fireMesh && fireMesh.userData.fs){
+    fireMesh.userData.fs.fuel = Math.max(0, fireMesh.userData.fs.fuel - skipped);
+  }
   S.day += 1; S.hours = 6;
-  S.energy = 100;
-  S.hunger = Math.max(5, S.hunger - 18);
-  S.thirst = Math.max(5, S.thirst - 22);
+  if (shelterNear && fireMesh){
+    S.energy = 100;
+    S.hunger = Math.max(5, S.hunger - 18);
+    S.thirst = Math.max(5, S.thirst - 22);
+    toast(`🌅 Tag ${S.day} beginnt. Warm und geschützt — du bist erholt.`);
+  } else if (shelterNear){
+    S.energy = Math.min(100, Math.max(S.energy, 85));
+    S.hunger = Math.max(5, S.hunger - 22);
+    S.thirst = Math.max(5, S.thirst - 26);
+    toast(`🌅 Tag ${S.day} beginnt. Trocken, aber kalt — ein Feuer täte gut.`);
+  } else {
+    S.energy = Math.min(100, Math.max(S.energy, 70));
+    S.hunger = Math.max(5, S.hunger - 28);
+    S.thirst = Math.max(5, S.thirst - 32);
+    S.health = Math.max(1, S.health - 6);
+    toast(`🌅 Tag ${S.day} beginnt. Eine unruhige Nacht am offenen Feuer.`);
+  }
   // 🦅 Adler stiehlt Nahrung ohne Unterschlupf
-  if (!nearest(shelters, 3.5)){
+  if (!shelterNear){
     const foods = ["beere","banane","kokos","fischGeb","krabbeGeb"].filter(id=>has(id));
     if (foods.length && Math.random()<0.4){
       const stolen = foods[Math.floor(Math.random()*foods.length)];
@@ -1701,7 +1788,6 @@ function sleep(){
       setTimeout(()=>toast(`🦅 Ein Adler stahl nachts dein ${ITEMS[stolen].em} ${ITEMS[stolen].nm}! Bau einen Unterschlupf.`,4500),700);
     }
   }
-  toast(`🌅 Tag ${S.day} beginnt. Du fühlst dich erholt.`);
   saveGame();
 }
 
@@ -2058,7 +2144,9 @@ function confirmGhost(){
   scene.remove(ghostState.mesh); ghostState=null;
   if(type==="feuer"){
     const f=shadowify(mkFire()); f.position.copy(pos); scene.add(f); fires.push(f);
-    S.fires.push({x:pos.x,z:pos.z}); sfx("fire_lit"); toast("🔥 Lagerfeuer entzündet!");
+    const fe={x:pos.x,z:pos.z,fuel:FIRE_START}; f.userData.fs=fe; S.fires.push(fe);
+    sfx("fire_lit");
+    toast("🔥 Lagerfeuer entzündet — Holz für " + FIRE_START + " Stunden. Leg rechtzeitig nach!", 4500);
   } else {
     const sh=shadowify(mkShelter()); sh.position.copy(pos); scene.add(sh); shelters.push(sh);
     S.shelters.push({x:sh.position.x,z:sh.position.z}); sfx("craft"); toast("⛺ Unterschlupf gebaut!");
@@ -2343,7 +2431,9 @@ function update(dt){
   if (S.hunger <= 0) dmg += 1.4;
   if (S.energy <= 0) dmg += 0.4;
   if (dmg > 0) S.health = Math.max(0, S.health - dmg*dt);
-  else if (S.hunger > 40 && S.thirst > 40) S.health = Math.min(100, S.health + 0.8*dt);
+  // Erholung ist langsam und endet bei 70. Darüber hinaus heilen nur
+  // zubereitete Mahlzeiten (+12) und Heilkraut (+18).
+  else if (S.hunger > 40 && S.thirst > 40 && S.health < 70) S.health = Math.min(70, S.health + 0.12*dt);
 
   if (S.health <= 0 && !dead){ dead = true; gameOver(); return; }
 
@@ -2394,12 +2484,28 @@ function update(dt){
   if (S.nextDrift <= 0){ spawnDrift(); S.nextDrift = 90 + Math.random()*60; }
   drifts.forEach(d => { if (d.userData.glow) d.userData.glow.rotation.y += dt*2.5; });
 
-  // Feuer flackern
-  fires.forEach(f => {
-    if (f.userData.flame){ const s = 0.85 + Math.sin(performance.now()*0.012 + f.position.x)*0.15;
+  // Feuer: Brennstoff verbrauchen, flackern, erlöschen
+  const burn = dt * 24 / CFG.dayLength;   // Verbrauch in Spielstunden
+  for (let fi = fires.length - 1; fi >= 0; fi--){
+    const f = fires[fi], fs = f.userData.fs;
+    if (fs){
+      fs.fuel -= burn;
+      if (fs.fuel > 1.6) fs.warned = false;
+      else if (!fs.warned && fs.fuel > 0){ fs.warned = true;
+        toast("🔥 Das Feuer brennt nieder — leg Holz nach!", 3800); }
+      if (fs.fuel <= 0){
+        scene.remove(f); fires.splice(fi, 1);
+        const k = S.fires.indexOf(fs); if (k >= 0) S.fires.splice(k, 1);
+        toast("🔥 Das Feuer ist erloschen."); saveGame();
+        continue;
+      }
+    }
+    // Flamme und Lichtkegel schrumpfen mit dem Brennstoff
+    const lo = fs ? Math.max(0.45, Math.min(1, fs.fuel / 4)) : 1;
+    if (f.userData.flame){ const s = (0.85 + Math.sin(performance.now()*0.012 + f.position.x)*0.15) * lo;
       f.userData.flame.scale.set(s, s, s); }
-    if (f.userData.light) f.userData.light.intensity = 1.0 + Math.sin(performance.now()*0.02)*0.18;
-  });
+    if (f.userData.light) f.userData.light.intensity = (1.0 + Math.sin(performance.now()*0.02)*0.18) * lo;
+  }
 
   // Ozeanwellen
   const tNow = performance.now() * 0.001;
@@ -2470,14 +2576,14 @@ function update(dt){
   if (S.weather.type !== "clear" && has("flasche") && S.bottle < 3){
     rainFillT += dt;
     if (rainFillT > 15){
-      rainFillT = 0; S.bottle++;
-      sfx("drink"); sfx("drink"); toast(`🍼 Der Regen füllt deine Flasche (${S.bottle}/3).`);
+      rainFillT = 0; if (S.bottle === 0) S.bottleClean = true; S.bottle++;
+      sfx("drink"); sfx("drink"); toast(`🍼 Der Regen füllt deine Flasche (${S.bottle}/3) — sauberes Wasser.`);
     }
   } else rainFillT = 0;
 
   // 🚢 Schiff spawnen
   S.shipCD -= dt;
-  if (S.shipCD <= 0 && !shipMesh.visible && S.day >= 7){
+  if (S.shipCD <= 0 && !shipMesh.visible && S.day >= 3){
     const angle = Math.random()*Math.PI*2, dist = 72;
     shipMesh.position.set(Math.cos(angle)*dist, CFG.waterLevel+0.4, Math.sin(angle)*dist);
     shipMesh.rotation.y = -angle + Math.PI*0.5;
@@ -2527,6 +2633,14 @@ function update(dt){
     thunderTimer -= dt;
     if (thunderTimer <= 0){ sfx("thunder"); thunderTimer = 7 + Math.random()*12; }
   } else thunderTimer = 7 + Math.random()*8;
+
+  // 🌙 Nacht ohne Feuer und ohne Unterschlupf: die Kälte zehrt
+  if (isNight() && !caveMode && !nearest(fires, 6.0) && !nearest(shelters, 4.0)){
+    S.health = Math.max(1, S.health - 0.35*dt);
+    nightWarnT -= dt;
+    if (nightWarnT <= 0){ nightWarnT = 22;
+      toast("🌙 Die Kälte kriecht dir in die Knochen. Du brauchst Feuer.", 3600); }
+  } else nightWarnT = 0;
 
   // Sturm zehrt — außer im Schutz von Unterschlupf oder Höhle
   if (S.weather.type === "storm"){
@@ -2604,7 +2718,8 @@ function loop(){
 function rebuildStructures(){
   fires.forEach(f => scene.remove(f)); fires.length = 0;
   shelters.forEach(s => scene.remove(s)); shelters.length = 0;
-  (S.fires||[]).forEach(p => { const f = shadowify(mkFire()); placeOnTerrain(f, p.x, p.z); scene.add(f); fires.push(f); });
+  (S.fires||[]).forEach(p => { if (typeof p.fuel !== "number") p.fuel = FIRE_START;
+    const f = shadowify(mkFire()); placeOnTerrain(f, p.x, p.z); f.userData.fs = p; scene.add(f); fires.push(f); });
   (S.shelters||[]).forEach(p => { const s = shadowify(mkShelter()); placeOnTerrain(s, p.x, p.z); scene.add(s); shelters.push(s); });
 }
 function startGame(state){
@@ -2613,7 +2728,9 @@ function startGame(state){
   if (typeof S.cave !== "number") S.cave = 0;
   if (typeof S.peak !== "number") S.peak = 0;
   if (typeof S.driftN !== "number") S.driftN = 0;
-  if (typeof S.shipCD !== "number" || S.shipCD < 100) S.shipCD = 220;
+  if (typeof S.shipCD !== "number") S.shipCD = 95;
+  if (typeof S.bottleClean !== "boolean") S.bottleClean = false;
+  applySkin();
   if (typeof S.poison !== "number") S.poison = 0;
   if (typeof S.snakeCD !== "number") S.snakeCD = 60;
   if (!S.weather || !S.weather.type) S.weather = { type:"clear", t: 8 };
@@ -2813,6 +2930,7 @@ function selectSkin(id){
   if(!sk || !skinUnlocked(sk)) return;
   META.activeSkin = id; saveMeta();
   if(typeof sfx==="function") sfx("craft");
+  applySkin();
   renderSkins();
 }
 window.selectSkin = selectSkin;
@@ -2825,9 +2943,10 @@ setTimeout(function(){
 $("btnSkins").onclick = function(){ renderSkins(); $("skinScreen").style.display="flex"; $("start").style.display="none"; };
 $("btnSkinBack").onclick = function(){ $("skinScreen").style.display="none"; $("start").style.display="flex"; };
 $("btnBuySupporter").onclick = function(){
-  // Stripe Payment Link (Test-Modus - durch echten Link ersetzen)
-  var STRIPE_LINK = "https://buy.stripe.com/test_supporter_placeholder";
-  // Zeige Kauf-Dialog mit Code-Eingabe
+  // HINWEIS: Der Payment-Link steht AUSSCHLIESSLICH im href von #stripeLink
+  // (im HTML weiter oben, Suchbegriff "buy.stripe.com"). Vor dem Launch dort
+  // den echten Link eintragen. Die frühere tote Variable an dieser Stelle
+  // war ein zweiter, abweichender Platzhalter und ist entfernt.
   $("buyDialog").style.display = "flex";
 };
 function codeHash(code){
