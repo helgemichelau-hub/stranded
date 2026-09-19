@@ -455,6 +455,7 @@ function freshState(){
     bottle: 0,
     bottleClean: false,      // Wasser im Kanister abgekocht?
     log: [],                 // Logbuch-Eintraege, einer pro Nacht
+    frags: [],               // Indizes der gefundenen Vorgaenger-Blaetter
     raft: 0,                   // 0 Wrack · 1 Rumpf · 2 Mast & Segel · 3 startklar
     found: {},                 // einmalige Strandgut-Funde
     fires: [], shelters: [],
@@ -537,7 +538,8 @@ const ACHIEVEMENTS = [
   { id:"win_fast",     em:"\u26A1", nm:"Schnelle Flucht",    desc:"Entkomme in unter 5 Tagen" },
   { id:"collector",    em:"\uD83C\uDF92", nm:"Sammler",           desc:"Sammle 50 Items in einer Runde" },
   { id:"woodcutter",   em:"\uD83E\uDE93", nm:"Holzf\u00e4ller",      desc:"Sammle 30 Holz in einer Runde" },
-  { id:"survivor",     em:"\uD83D\uDC51", nm:"\u00dcberlebensk\u00fcnstler", desc:"Gewinne 5 Mal" }
+  { id:"survivor",     em:"\uD83D\uDC51", nm:"\u00dcberlebensk\u00fcnstler", desc:"Gewinne 5 Mal" },
+  { id:"chronist",     em:"\uD83D\uDCDC", nm:"Chronist",            desc:"Finde alle 7 Bl\u00e4tter des Vorg\u00e4ngers" }
 ];
 function unlockAch(id){
   if(META.achievements[id]) return false;
@@ -1123,6 +1125,95 @@ function mkHerb(){
 const herbs=[];
 scatter(herbs, mkHerb, 6, 6.0, 14.0, "herb");
 
+/* =====================================================================
+   DIE BLAETTER DES VORGAENGERS
+   Sieben Seiten aus dem Logbuch eines Mannes, der vor dir hier war.
+   Wird nie aufgeloest: kein Name, kein Grab, kein Ende.
+   Blatt 5 (Tag 34) liegt in der Hoehle, die uebrigen sechs auf der Insel.
+   ===================================================================== */
+const FRAGS = [
+  { tag:3,  txt:"Die Rettungsweste hat mich getragen, sonst nichts.\n\n"+
+                "Ich ritze die Tage in einen Palmstamm. Es ist albern, aber es ist etwas, das ich tun kann." },
+  { tag:9,  txt:"Man muss das Wasser abkochen. Ich habe das auf die harte Tour gelernt, zwei Tage lang.\n\n"+
+                "Wer immer das hier liest: fang nicht mit dem Teich an." },
+  { tag:17, txt:"Der Rumpf steht. Ich habe ihn dreimal umgebaut, bis er nicht mehr knarrt.\n\n"+
+                "Nachts tr\u00e4ume ich von einer K\u00fcste, die ich nie gesehen habe. Ich wache immer auf, bevor ich ankomme." },
+  { tag:23, txt:"Der Sturm hat das Flo\u00df gegen die Felsen geworfen. Zwei Wochen Arbeit in einer Nacht.\n\n"+
+                "Ich habe zu weit unten gebaut. Ich habe es besser gewusst." },
+  { tag:29, txt:"Ein Schiff. Ich habe geschrien, bis meine Stimme weg war, und mit einem brennenden Ast gewinkt.\n\n"+
+                "Es hat mich nicht gesehen. Ich habe den ganzen Tag am Strand gesessen." },
+  { tag:34, txt:"Segeltuch, angesp\u00fclt, kaum besch\u00e4digt. Zu sp\u00e4t f\u00fcr den Sturm, gerade recht f\u00fcr den Neuanfang.\n\n"+
+                "Ich fange noch einmal von vorne an. Das ist das letzte Mal, das schw\u00f6re ich mir." },
+  { tag:41, txt:"Das Fieber kommt in Wellen. Ich bringe das Tuch in die H\u00f6hle, dort ist es trocken.\n\n"+
+                "Morgen. Morgen fange ich an." }
+];
+const FRAG_CAVE = 5;   // das Blatt, das in der Hoehle liegt
+
+function mkFragment(){
+  const g = new THREE.Group();
+  const paper = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.56),
+    new THREE.MeshBasicMaterial({ color:0xe8dcc0, side:THREE.DoubleSide }));
+  paper.rotation.x = -Math.PI/2 + 0.12;
+  paper.rotation.z = Math.random()*0.8 - 0.4;
+  paper.position.y = 0.05;
+  paper.userData.noShadow = true;
+  g.add(paper);
+  // beschwert mit einem kleinen Stein, damit es nicht wegweht
+  const st = new THREE.Mesh(new THREE.DodecahedronGeometry(0.11, 0), mat(0x8f8f94));
+  st.position.set(0.1, 0.09, -0.08); g.add(st);
+  // schwacher Schimmer, damit man es im Gras findet
+  const glow = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 5),
+    new THREE.MeshBasicMaterial({ color:0xffe9a8, transparent:true, opacity:0.75, depthWrite:false }));
+  glow.position.y = 0.55; glow.userData.noShadow = true;
+  g.add(glow); g.userData.glow = glow;
+  return g;
+}
+
+const fragObjs = [];
+(function platziereBlaetter(){
+  // Ueber die Biome verteilt, damit man die ganze Insel sehen muss.
+  const plan = [
+    { fi:0, band:[0.90, 1.30] },   // Strand
+    { fi:1, band:[1.80, 3.20] },   // Wiese
+    { fi:2, band:[0.90, 1.30] },   // Strand, andere Seite
+    { fi:3, band:[2.50, 4.80] },   // Huegel
+    { fi:4, jungle:true        },   // Dschungel
+    { fi:6, band:[6.00, 12.0] }    // Berghang
+  ];
+  plan.forEach(function(p){
+    let s = null;
+    for (let t = 0; t < 40 && !s; t++){
+      s = p.jungle ? jungleSpot() : randSpot(p.band[0], p.band[1]);
+    }
+    if (!s) s = { x: 12 + p.fi*3, z: 40 };
+    const o = shadowify(mkFragment());
+    placeOnTerrain(o, s.x, s.z);
+    o.rotation.y = Math.random()*Math.PI*2;
+    o.userData.type = "frag"; o.userData.fi = p.fi;
+    scene.add(o); fragObjs.push(o);
+  });
+})();
+
+// Ein Blatt aufschlagen: als Karte zeigen, merken, ggf. Erfolg freischalten.
+function leseBlatt(fi){
+  if (!S) return;
+  if (!Array.isArray(S.frags)) S.frags = [];
+  if (S.frags.indexOf(fi) < 0) S.frags.push(fi);
+  const f = FRAGS[fi];
+  const gefunden = S.frags.length;
+  if (gefunden >= FRAGS.length) unlockAch("chronist");
+  saveGame();
+  showLogbook({
+    day: f.tag,
+    txt: f.txt,
+    title: "Fremdes Logbuch \u00b7 Tag " + f.tag,
+    fremd: true
+  }, function(){
+    if (gefunden < FRAGS.length)
+      toast("\uD83D\uDCDC " + gefunden + " von " + FRAGS.length + " Bl\u00e4ttern gefunden.", 3000);
+  });
+}
+
 // ---------- Floß-Bauplatz (Südstrand) ----------
 const RAFT = { x: 10, z: 51 };
 const raftG = new THREE.Group();
@@ -1644,6 +1735,12 @@ function computeActions(){
     saveGame();
   }});
 
+  // 📜 Blatt des Vorgängers
+  const frag = nearest(fragObjs.filter(o => o.visible), 2.2);
+  if (frag) acts.push({ at:frag.position, label:"📜 Blatt aufheben", run(){
+    sfx("discover"); frag.visible = false; leseBlatt(frag.userData.fi);
+  }});
+
   // 🌱 Heilkraut am Berg
   const herb = nearest(herbs, 2.0);
   if (herb) acts.push({ at:herb.position, label:"🌱 Heilkraut ernten", run(){
@@ -1853,18 +1950,22 @@ function showLogbook(entry, onClose){
   ov.style.cssText = "position:fixed;inset:0;z-index:40;display:flex;align-items:center;"+
     "justify-content:center;padding:24px;background:rgba(4,8,14,.82);backdrop-filter:blur(3px);";
   const card = document.createElement("div");
-  card.style.cssText = "width:100%;max-width:330px;background:linear-gradient(170deg,#efe3c8,#ddcaa4);"+
+  const fremd = !!entry.fremd;
+  card.style.cssText = "width:100%;max-width:330px;background:linear-gradient(170deg,"+
+    (fremd ? "#d6c9ad,#b8a98c" : "#efe3c8,#ddcaa4") + ");"+
     "border-radius:6px;padding:22px 22px 16px;box-shadow:0 14px 40px rgba(0,0,0,.6);"+
-    "border-left:6px solid #8a6a3a;";
+    "border-left:6px solid " + (fremd ? "#5e4e30" : "#8a6a3a") + ";";
   const head = document.createElement("div");
-  head.style.cssText = "font-size:10px;letter-spacing:2.5px;color:#8a6a3a;font-weight:700;"+
-    "text-transform:uppercase;margin-bottom:12px;border-bottom:1px solid rgba(138,106,58,.3);padding-bottom:8px;";
-  head.textContent = "Logbuch · Tag " + entry.day;
+  head.style.cssText = "font-size:10px;letter-spacing:2.5px;color:" + (fremd ? "#5e4e30" : "#8a6a3a") +
+    ";font-weight:700;text-transform:uppercase;margin-bottom:12px;"+
+    "border-bottom:1px solid rgba(94,78,48,.35);padding-bottom:8px;";
+  head.textContent = entry.title || ("Logbuch \u00b7 Tag " + entry.day);
   const body = document.createElement("div");
   body.style.cssText = "font-family:Georgia,'Times New Roman',serif;font-size:15px;line-height:1.7;"+
     "color:#3a2c18;white-space:pre-wrap;min-height:150px;";
   const hint = document.createElement("div");
-  hint.style.cssText = "margin-top:14px;text-align:right;font-size:11px;color:#8a6a3a;opacity:0;transition:opacity .4s;";
+  hint.style.cssText = "margin-top:14px;text-align:right;font-size:11px;color:" +
+    (fremd ? "#5e4e30" : "#8a6a3a") + ";opacity:0;transition:opacity .4s;";
   hint.textContent = "Tippen zum Schließen";
   card.appendChild(head); card.appendChild(body); card.appendChild(hint);
   ov.appendChild(card); document.body.appendChild(ov);
@@ -1910,6 +2011,26 @@ function showLogAll(){
         "<div style='font-size:9px;letter-spacing:2px;color:#8a6a3a;font-weight:700;margin-bottom:8px'>TAG "+
         e.day + "</div><div style=\"font-family:Georgia,serif;font-size:13.5px;line-height:1.65;"+
         "color:#3a2c18;white-space:pre-wrap\">" + e.txt + "</div></div>";
+    });
+  }
+  // Gefundene Bl\u00e4tter des Vorg\u00e4ngers, nach seinen Tagen sortiert
+  const gef = ((S && S.frags) ? S.frags.slice() : []).sort(function(a,b){ return FRAGS[a].tag - FRAGS[b].tag; });
+  html += "<div style='text-align:center;color:#b8a98c;font-size:15px;font-weight:700;margin:26px 0 4px'>"+
+    "\uD83D\uDCDC Bl\u00e4tter des Vorg\u00e4ngers</div>"+
+    "<div style='text-align:center;color:#8a9aaa;font-size:11px;margin-bottom:14px'>"+
+    gef.length + " von " + FRAGS.length + " gefunden</div>";
+  if (!gef.length){
+    html += "<div style='color:#8a9aaa;font-size:13px;text-align:center;padding:14px 0 24px'>"+
+      "Irgendwo auf der Insel liegen Seiten von jemandem, der vor dir hier war.</div>";
+  } else {
+    gef.forEach(function(fi){
+      const f = FRAGS[fi];
+      html += "<div style='background:linear-gradient(170deg,#d6c9ad,#b8a98c);border-left:5px solid #5e4e30;"+
+        "border-radius:5px;padding:14px 16px;margin-bottom:12px'>"+
+        "<div style='font-size:9px;letter-spacing:2px;color:#5e4e30;font-weight:700;margin-bottom:8px'>"+
+        "FREMDES LOGBUCH \u00b7 TAG " + f.tag + "</div>"+
+        "<div style=\"font-family:Georgia,serif;font-size:13.5px;line-height:1.65;"+
+        "color:#2e2515;white-space:pre-wrap\">" + f.txt + "</div></div>";
     });
   }
   html += "<button id='btnLogBack' style='width:100%;margin-top:6px'>Zurück</button>";
@@ -2506,7 +2627,7 @@ function updateCave3D(dt){
     if(it.x===gc&&it.y===gr&&!caveItemsGot.has(key)){
       caveItemsGot.add(key); give(it.id,it.amt||1); sfx("pickup");
       toast(labels[i]+" gefunden!");
-      if(it.id==="heilkraut") setTimeout(()=>toast('Verwittertes Notizbuch: Tag 34 …'),1400);
+      if(it.id==="heilkraut") setTimeout(function(){ leseBlatt(FRAG_CAVE); }, 1400);
       if(caveItemGs[i]) caveItemGs[i].visible=false;
     }
   });
@@ -2666,6 +2787,13 @@ function update(dt){
   S.nextDrift -= dt;
   if (S.nextDrift <= 0){ spawnDrift(); S.nextDrift = 90 + Math.random()*60; }
   drifts.forEach(d => { if (d.userData.glow) d.userData.glow.rotation.y += dt*2.5; });
+  // Blätter pulsieren leicht, damit man sie im hohen Gras entdeckt
+  fragObjs.forEach(function(o){
+    if (!o.visible || !o.userData.glow) return;
+    const ps = 0.8 + Math.sin(performance.now()*0.003 + o.position.x)*0.25;
+    o.userData.glow.scale.set(ps, ps, ps);
+    o.userData.glow.position.y = 0.55 + Math.sin(performance.now()*0.002 + o.position.z)*0.06;
+  });
 
   // Feuer: Brennstoff verbrauchen, flackern, erlöschen
   const burn = dt * 24 / CFG.dayLength;   // Verbrauch in Spielstunden
@@ -2915,6 +3043,8 @@ function startGame(state){
   if (typeof S.shipCD !== "number") S.shipCD = 95;
   if (typeof S.bottleClean !== "boolean") S.bottleClean = false;
   if (!Array.isArray(S.log)) S.log = [];
+  if (!Array.isArray(S.frags)) S.frags = [];
+  fragObjs.forEach(function(o){ o.visible = S.frags.indexOf(o.userData.fi) < 0; });
   applySkin();
   if (typeof S.poison !== "number") S.poison = 0;
   if (typeof S.snakeCD !== "number") S.snakeCD = 60;
@@ -2952,7 +3082,8 @@ function _showWin(how){
     ["⛰","Gipfel",S.peak?"Ja ✓":"Nein"],
     ["⛏","Höhle",S.cave>=1?"Erkundet":"Nicht"],
     ["🎒","Gesammelt",tot+" Items"],
-    ["🔥","Lagerfeuer",(S.fires||[]).length]
+    ["🔥","Lagerfeuer",(S.fires||[]).length],
+    ["📜","Blätter",((S.frags||[]).length)+"/"+FRAGS.length]
   ];
   $("winStats").innerHTML=it.map(function(a){
     return'<div style="text-align:right;font-size:18px">'+a[0]+'</div>'+
@@ -3020,7 +3151,8 @@ function gameOver(){
     ["🏔️","Gipfel", S.peak ? "Ja ✓" : "Nein"],
     ["⛏️","Höhle", S.cave >= 1 ? "Erkundet" : "Nicht"],
     ["🎒","Gesammelt", totalRes + " Items"],
-    ["🔥","Lagerfeuer", (S.fires || []).length]
+    ["🔥","Lagerfeuer", (S.fires || []).length],
+    ["📜","Blätter", ((S.frags||[]).length)+"/"+FRAGS.length]
   ];
   $("goStats").innerHTML = statItems.map(([ic,lb,val])=>
     '<div style="text-align:right;font-size:18px">' + ic + '</div>' +
