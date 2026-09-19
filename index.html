@@ -262,6 +262,7 @@
     background:rgba(255,255,255,.05);border-radius:12px;padding:14px 20px;margin-bottom:16px;width:100%;max-width:280px"></div>
   <p id="goText" style="font-size:13px;color:#a0907a;max-width:280px;line-height:1.6;margin-bottom:18px"></p>
   <button id="btnRetry">Noch einmal versuchen</button>
+  <button id="btnLogGo" class="ghost">📖 Logbuch lesen</button>
 </div>
 
 <div id="win" class="overlay" style="display:none; background:linear-gradient(180deg,#0e3a55,#081422)">
@@ -272,6 +273,7 @@
   <div id="winStats" style="display:grid;grid-template-columns:1fr 1fr;gap:8px 20px;background:rgba(255,255,255,.06);border-radius:12px;padding:14px 20px;margin-bottom:16px;width:100%;max-width:280px"></div>
   <p id="winText" style="font-size:13px;color:#7ab0cc;max-width:280px;line-height:1.6;margin-bottom:18px"></p>
   <button id="btnWinNew" style="background:linear-gradient(135deg,#2a8fd4,#1a6aaa)">Neues Abenteuer</button>
+  <button id="btnLogWin" class="ghost">📖 Logbuch lesen</button>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -301,8 +303,10 @@ const CFG = {
 
 // Brennstoff eines Lagerfeuers, gemessen in Spielstunden (1 Holz = 1 Stunde).
 // Bei dayLength 240 entspricht 1 Stunde 10 Realsekunden.
-const FIRE_MAX   = 12;   // Fassungsvermoegen
-const FIRE_START = 6;    // frisch entzuendet
+const FIRE_MAX       = 30;   // Fassungsvermoegen in Spielstunden (= 1,25 Tage)
+const FIRE_START     = 12;   // frisch entzuendet
+const HOURS_PER_WOOD = 3;    // Heizwert eines Scheits
+const REFUEL_LOGS    = 4;    // Scheite pro Nachlegen (= 12 Stunden)
 
 const ITEMS = {
   holz:    { nm:"Holz",       em:"🪵" },
@@ -316,7 +320,7 @@ const ITEMS = {
   krabbeGeb:{nm:"Gebr. Krabbe",em:"🍤", eat:{hunger:25} },
   konserve:{ nm:"Konserve",   em:"🥫", eat:{hunger:40} },
   messer:  { nm:"Messer",     em:"🔪" },
-  flasche: { nm:"Flasche",    em:"🍼" },
+  flasche: { nm:"Metallkanister", em:"🧴" },   // aus dem Notfallset des Flugzeugs
   speer:   { nm:"Speer",      em:"🔱" },
   axt:     { nm:"Axt",        em:"🪓" },
   segel:        { nm:"Segeltuch",    em:"⛵" },
@@ -449,11 +453,12 @@ function freshState(){
     weather: { type:"clear", t: 8 },
     inv: {},
     bottle: 0,
-    bottleClean: false,      // Wasser in der Flasche abgekocht?
+    bottleClean: false,      // Wasser im Kanister abgekocht?
+    log: [],                 // Logbuch-Eintraege, einer pro Nacht
     raft: 0,                   // 0 Wrack · 1 Rumpf · 2 Mast & Segel · 3 startklar
     found: {},                 // einmalige Strandgut-Funde
     fires: [], shelters: [],
-    nextDrift: 60,             // Sekunden bis zum nächsten Strandgut
+    nextDrift: 25,             // Sekunden bis zum ersten Strandgut (Flasche)
     tutorial: 0,
     challenges: rollChallenges(),
     _woodGathered: 0,
@@ -1229,8 +1234,9 @@ function spawnDrift(){
   const s = randSpot(0.85, 1.2); if (!s) return;
   let item;
   const n = S.driftN || 0;
-  if (n === 0 && !S.found.messer) item = "messer";          // 1. Fund garantiert
-  else if (n <= 1 && !S.found.flasche) item = "flasche";    // 2. Fund garantiert
+  // Die Flasche kommt zuerst: ohne sie lässt sich kein Wasser abkochen.
+  if (n === 0 && !S.found.flasche) item = "flasche";        // 1. Fund garantiert
+  else if (n <= 1 && !S.found.messer) item = "messer";      // 2. Fund garantiert
   else {
     const pool = [];
     if (!S.found.messer)  pool.push("messer");
@@ -1341,8 +1347,8 @@ function useItem(id){
       if (!S.bottleClean && Math.random() < 0.35){
         S.health = Math.max(1, S.health - 9);
         toast("🤢 Ungekochtes Wasser — dir wird übel.");
-      } else toast("💧 Du trinkst aus der Flasche."); }
-    else toast("Die Flasche ist leer — fülle sie am Teich.");
+      } else toast("💧 Du trinkst aus dem Kanister."); }
+    else toast("Der Kanister ist leer — füll ihn am Teich.");
     renderInv(); return;
   }
   if (!it.eat) return;
@@ -1492,7 +1498,7 @@ function computeActions(){
     else if (st === 2) acts.push({ at:raftG.position, label:"🧺 Proviant verstauen", run(){
       const cooked = (S.inv.fischGeb||0) + (S.inv.krabbeGeb||0) + (S.inv.konserve||0);
       if (cooked < 4 || !has("flasche") || S.bottle < 3 || !S.bottleClean){
-        toast("Benötigt: 4 zubereitete Speisen + volle Flasche mit abgekochtem Wasser", 4000); return;
+        toast("Benötigt: 4 zubereitete Speisen + voller Kanister mit abgekochtem Wasser", 4000); return;
       }
       startGather("Verstauen …", 2.5, () => {
         let need = 4;
@@ -1513,7 +1519,8 @@ function computeActions(){
       const it = dft.userData.item;
       scene.remove(dft); drifts.splice(drifts.indexOf(dft), 1);
       if (it === "messer"){ give("messer"); S.found.messer = true; toast("🔪 Ein Messer! Du sammelst nun schneller."); }
-      else if (it === "flasche"){ give("flasche"); S.found.flasche = true; toast("🍼 Eine Flasche! Fülle sie am Teich."); }
+      else if (it === "flasche"){ give("flasche"); S.found.flasche = true;
+        toast("🧴 Ein Metallkanister aus dem Notfallset! Wasser darin lässt sich über der Glut abkochen.", 5000); }
       else if (it === "kiste"){
         give("leuchtrakete"); S.found.kiste=true;
         toast("📦 Militärkoffer! Eine Leuchtrakete — dein letztes Ass.", 5000);
@@ -1682,8 +1689,8 @@ function computeActions(){
       });
     }});
     if (has("flasche") && S.bottle < 3)
-      acts.push({ label:"🍼 Flasche füllen", run(){ S.bottle = 3; S.bottleClean = false;
-        toast("🍼 Flasche gefüllt — am Feuer abkochen, sonst wird dir übel.", 3600); }});
+      acts.push({ label:"🧴 Kanister füllen", run(){ S.bottle = 3; S.bottleClean = false;
+        toast("🧴 Kanister gefüllt — am Feuer abkochen, sonst wird dir übel.", 3600); }});
   }
 
   // Fischen am Meer
@@ -1703,7 +1710,7 @@ function computeActions(){
   if (fire){
     const fs = fire.userData.fs;
     // Dringendes Nachlegen hat Vorrang vor allem anderen am Feuer
-    if (fs && fs.fuel < 2.5 && (S.inv.holz||0) >= 1)
+    if (fs && fs.fuel < 6 && (S.inv.holz||0) >= 1)
       acts.push({ at:fire.position, label:"🪵 Feuer nachlegen!", run(){ refuelFire(fire); }});
     if (has("flasche") && S.bottle > 0 && !S.bottleClean)
       acts.push({ at:fire.position, label:"♨️ Wasser abkochen", run(){
@@ -1719,7 +1726,7 @@ function computeActions(){
     if (has("fleischRoh")) acts.push({ at:fire.position, label:"🍖 Fleisch braten", run(){
       startGather("Braten …", 2.2, () => { take("fleischRoh"); give("fleischGeb"); toast("🍖 Fleisch gebraten — eine Festmahlzeit!"); saveGame(); });
     }});
-    if (fs && fs.fuel >= 2.5 && fs.fuel < FIRE_MAX - 0.5 && (S.inv.holz||0) >= 1)
+    if (fs && fs.fuel >= 6 && fs.fuel < FIRE_MAX - HOURS_PER_WOOD && (S.inv.holz||0) >= 1)
       acts.push({ at:fire.position, label:"🪵 Feuer nachlegen", run(){ refuelFire(fire); }});
   }
   const shelter = nearest(shelters, 3.5);
@@ -1739,17 +1746,177 @@ function randSpotV(a, b){
   return new THREE.Vector3(s.x, terrainH(s.x, s.z), s.z);
 }
 
-// Holz nachlegen: bis zu 3 Scheite auf einmal, gedeckelt durch FIRE_MAX.
+// Holz nachlegen: bis zu REFUEL_LOGS Scheite, je HOURS_PER_WOOD Stunden.
 function refuelFire(f){
   const fs = f.userData.fs; if (!fs) return;
-  const n = Math.min(3, S.inv.holz||0, Math.max(1, Math.ceil(FIRE_MAX - fs.fuel)));
+  const platz = Math.max(1, Math.ceil((FIRE_MAX - fs.fuel) / HOURS_PER_WOOD));
+  const n = Math.min(REFUEL_LOGS, S.inv.holz||0, platz);
   if (n <= 0) return;
   take("holz", n);
-  fs.fuel = Math.min(FIRE_MAX, fs.fuel + n);
+  fs.fuel = Math.min(FIRE_MAX, fs.fuel + n * HOURS_PER_WOOD);
   fs.warned = false;
   sfx("fire_lit"); haptic(12);
-  toast("🪵 Nachgelegt — das Feuer brennt noch " + Math.round(fs.fuel) + " Stunden.");
+  toast("🪵 " + n + " Scheite nachgelegt — das Feuer brennt noch "
+        + Math.round(fs.fuel) + " Stunden.");
   saveGame();
+}
+
+/* =====================================================================
+   LOGBUCH — der Ueberlebende schreibt jeden Abend am Feuer mit.
+   Die Eintraege entstehen aus dem echten Spielzustand, nicht zufaellig.
+   ===================================================================== */
+function pick(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+
+function logAuftakt(d){
+  if (d <= 1) return pick([
+    "Erster Abend. Das Rauschen ist anders als zu Hause. Lauter.",
+    "Erster Abend. Ich schreibe, weil ich sonst nichts tun kann."
+  ]);
+  if (d <= 3) return pick([
+    "Tag " + d + ". Ich zähle noch mit. Solange ich zähle, bin ich hier nicht zu Hause.",
+    "Tag " + d + ". Niemand kommt. Noch nicht."
+  ]);
+  if (d <= 7) return pick([
+    "Tag " + d + ". Meine Hände sehen aus wie die eines anderen.",
+    "Tag " + d + ". Ich habe angefangen, laut mit mir zu reden."
+  ]);
+  if (d <= 13) return pick([
+    "Tag " + d + ". Ich starre nicht mehr auf den Horizont. Es hilft nichts.",
+    "Tag " + d + ". Die Insel hat einen Rhythmus. Ich lerne ihn."
+  ]);
+  return pick([
+    "Tag " + d + ". Zwei Wochen und mehr. Sie gehört mir nicht, aber sie duldet mich.",
+    "Tag " + d + ". Ich weiß nicht mehr, welcher Wochentag ist. Es spielt keine Rolle."
+  ]);
+}
+
+function logZustand(){
+  if (S.snakeToday) return pick([
+    "Die Schlange sitzt mir noch in den Beinen. Ich war unachtsam.",
+    "Das Gift war schnell. Ich auch, gerade noch."
+  ]);
+  if (S.health < 35) return pick([
+    "Die Wunden verheilen schlecht. Ich sollte vorsichtiger sein.",
+    "Ich halte weniger aus als gestern. Das gefällt mir nicht."
+  ]);
+  if (S.thirst < 30) return pick([
+    "Mein Mund ist trocken wie Sand. Morgen zuerst ans Wasser.",
+    "Ich denke an Wasser, wenn ich an gar nichts denken will."
+  ]);
+  if (S.hunger < 30) return pick([
+    "Der Hunger ist ein Geräusch geworden, kein Gefühl mehr.",
+    "Ich habe die Beeren gezählt. Das ist kein gutes Zeichen."
+  ]);
+  if (S.health > 75 && S.hunger > 60 && S.thirst > 60) return pick([
+    "Heute war ein guter Tag. Ich schreibe das auf, damit ich es glaube.",
+    "Satt, trocken, ruhig. Ich traue dem nicht."
+  ]);
+  return pick([
+    "Es geht. Mehr will ich heute nicht sagen.",
+    "Müde. Aber nicht so müde wie gestern."
+  ]);
+}
+
+function logNacht(ctx){
+  if (ctx.fireOut) return "Das Feuer ist mir ausgegangen. Ich habe zu lange nach Holz gesucht.";
+  if (!ctx.fire && !ctx.shelter) return "Kein Feuer, kein Dach. Ich liege wach und höre zu.";
+  if (!ctx.fire) return "Das Dach hält, aber es ist kalt ohne Glut.";
+  if (!ctx.shelter) return "Das Feuer wärmt. Über mir nur der Himmel.";
+  return "Feuer und ein Dach darüber. Heute nacht schlafe ich wirklich.";
+}
+
+function logFortschritt(){
+  const st = S.raft || 0;
+  if (st >= 3) return "Alles ist verstaut. Morgen. Morgen stoße ich ab.";
+  if (st === 2) return "Das Segel hängt. Jetzt fehlt nur noch Proviant.";
+  if (st === 1) return "Der Rumpf steht. Ohne Segel ist er nur Brennholz mit Ambitionen.";
+  if (S.cave >= 1) return "In der Höhle war jemand vor mir. Seinen Namen habe ich nicht gefunden.";
+  if (S.peak) return "Vom Gipfel sieht man, wie klein das hier ist.";
+  return pick([
+    "Das Wrack am Südstrand liegt noch so da wie am ersten Tag.",
+    "Ich sollte anfangen zu bauen, statt nur zu sammeln."
+  ]);
+}
+
+function makeLogEntry(ctx){
+  const teile = [ logAuftakt(S.day - 1), logZustand() ];
+  // Die dritte Zeile wechselt zwischen Nachtlager und Fortschritt ab.
+  teile.push(((S.day % 2) === 0) ? logNacht(ctx) : logFortschritt());
+  return { day: S.day - 1, txt: teile.join("\n\n") };
+}
+
+// --- Overlay mit Schreibmaschinen-Effekt -------------------------------------
+function showLogbook(entry, onClose){
+  const wasRunning = running;
+  running = false;                       // Spielzeit anhalten, sonst laufen die Balken leer
+  const ov = document.createElement("div");
+  ov.style.cssText = "position:fixed;inset:0;z-index:40;display:flex;align-items:center;"+
+    "justify-content:center;padding:24px;background:rgba(4,8,14,.82);backdrop-filter:blur(3px);";
+  const card = document.createElement("div");
+  card.style.cssText = "width:100%;max-width:330px;background:linear-gradient(170deg,#efe3c8,#ddcaa4);"+
+    "border-radius:6px;padding:22px 22px 16px;box-shadow:0 14px 40px rgba(0,0,0,.6);"+
+    "border-left:6px solid #8a6a3a;";
+  const head = document.createElement("div");
+  head.style.cssText = "font-size:10px;letter-spacing:2.5px;color:#8a6a3a;font-weight:700;"+
+    "text-transform:uppercase;margin-bottom:12px;border-bottom:1px solid rgba(138,106,58,.3);padding-bottom:8px;";
+  head.textContent = "Logbuch · Tag " + entry.day;
+  const body = document.createElement("div");
+  body.style.cssText = "font-family:Georgia,'Times New Roman',serif;font-size:15px;line-height:1.7;"+
+    "color:#3a2c18;white-space:pre-wrap;min-height:150px;";
+  const hint = document.createElement("div");
+  hint.style.cssText = "margin-top:14px;text-align:right;font-size:11px;color:#8a6a3a;opacity:0;transition:opacity .4s;";
+  hint.textContent = "Tippen zum Schließen";
+  card.appendChild(head); card.appendChild(body); card.appendChild(hint);
+  ov.appendChild(card); document.body.appendChild(ov);
+
+  const full = entry.txt;
+  let i = 0, fertig = false;
+  const timer = setInterval(function(){
+    if (i >= full.length){ clearInterval(timer); fertig = true; hint.style.opacity = "1"; return; }
+    i++; body.textContent = full.slice(0, i);
+  }, 28);
+
+  ov.addEventListener("pointerdown", function(e){
+    e.preventDefault();
+    if (!fertig){                        // erster Tipp: Text sofort vollstaendig
+      clearInterval(timer); body.textContent = full; fertig = true; hint.style.opacity = "1"; return;
+    }
+    clearInterval(timer);
+    if (ov.parentNode) ov.parentNode.removeChild(ov);
+    if (wasRunning && !dead){ running = true; clock.getDelta(); loop(); }
+    if (onClose) onClose();
+  });
+}
+
+// --- Gesamtes Logbuch am Ende einer Runde ------------------------------------
+function showLogAll(){
+  const eintraege = (S && S.log) ? S.log : [];
+  const ov = document.createElement("div");
+  ov.style.cssText = "position:fixed;inset:0;z-index:70;overflow-y:auto;padding:"+
+    "calc(28px + env(safe-area-inset-top,0px)) 20px calc(28px + env(safe-area-inset-bottom,0px));"+
+    "background:rgba(4,8,14,.94);";
+  const inner = document.createElement("div");
+  inner.style.cssText = "max-width:340px;margin:0 auto;";
+  let html = "<div style='text-align:center;color:#e8d098;font-size:20px;font-weight:700;margin-bottom:4px'>"+
+    "📖 Logbuch</div><div style='text-align:center;color:#8a9aaa;font-size:11px;margin-bottom:18px'>"+
+    eintraege.length + " Einträge</div>";
+  if (!eintraege.length){
+    html += "<div style='color:#8a9aaa;font-size:13px;text-align:center;padding:30px 0'>"+
+      "Du hast keine Nacht überlebt, in der du hättest schreiben können.</div>";
+  } else {
+    eintraege.forEach(function(e){
+      html += "<div style='background:linear-gradient(170deg,#efe3c8,#ddcaa4);border-left:5px solid #8a6a3a;"+
+        "border-radius:5px;padding:14px 16px;margin-bottom:12px'>"+
+        "<div style='font-size:9px;letter-spacing:2px;color:#8a6a3a;font-weight:700;margin-bottom:8px'>TAG "+
+        e.day + "</div><div style=\"font-family:Georgia,serif;font-size:13.5px;line-height:1.65;"+
+        "color:#3a2c18;white-space:pre-wrap\">" + e.txt + "</div></div>";
+    });
+  }
+  html += "<button id='btnLogBack' style='width:100%;margin-top:6px'>Zurück</button>";
+  inner.innerHTML = html;
+  ov.appendChild(inner); document.body.appendChild(ov);
+  const back = inner.querySelector("#btnLogBack");
+  if (back) back.onclick = function(){ if (ov.parentNode) ov.parentNode.removeChild(ov); };
 }
 
 function sleep(){
@@ -1761,23 +1928,25 @@ function sleep(){
   if (fireMesh && fireMesh.userData.fs){
     fireMesh.userData.fs.fuel = Math.max(0, fireMesh.userData.fs.fuel - skipped);
   }
+  // Meldungen erst nach dem Logbuch zeigen, sonst laufen sie dahinter ab.
+  const meldungen = [];
   S.day += 1; S.hours = 6;
   if (shelterNear && fireMesh){
     S.energy = 100;
     S.hunger = Math.max(5, S.hunger - 18);
     S.thirst = Math.max(5, S.thirst - 22);
-    toast(`🌅 Tag ${S.day} beginnt. Warm und geschützt — du bist erholt.`);
+    meldungen.push([`🌅 Tag ${S.day} beginnt. Warm und geschützt — du bist erholt.`, 2600]);
   } else if (shelterNear){
     S.energy = Math.min(100, Math.max(S.energy, 85));
     S.hunger = Math.max(5, S.hunger - 22);
     S.thirst = Math.max(5, S.thirst - 26);
-    toast(`🌅 Tag ${S.day} beginnt. Trocken, aber kalt — ein Feuer täte gut.`);
+    meldungen.push([`🌅 Tag ${S.day} beginnt. Trocken, aber kalt — ein Feuer täte gut.`, 2600]);
   } else {
     S.energy = Math.min(100, Math.max(S.energy, 70));
     S.hunger = Math.max(5, S.hunger - 28);
     S.thirst = Math.max(5, S.thirst - 32);
     S.health = Math.max(1, S.health - 6);
-    toast(`🌅 Tag ${S.day} beginnt. Eine unruhige Nacht am offenen Feuer.`);
+    meldungen.push([`🌅 Tag ${S.day} beginnt. Eine unruhige Nacht am offenen Feuer.`, 2600]);
   }
   // 🦅 Adler stiehlt Nahrung ohne Unterschlupf
   if (!shelterNear){
@@ -1785,10 +1954,23 @@ function sleep(){
     if (foods.length && Math.random()<0.4){
       const stolen = foods[Math.floor(Math.random()*foods.length)];
       take(stolen,1);
-      setTimeout(()=>toast(`🦅 Ein Adler stahl nachts dein ${ITEMS[stolen].em} ${ITEMS[stolen].nm}! Bau einen Unterschlupf.`,4500),700);
+      meldungen.push([`🦅 Ein Adler stahl nachts dein ${ITEMS[stolen].em} ${ITEMS[stolen].nm}! Bau einen Unterschlupf.`, 4500]);
     }
   }
+  // Logbuch-Eintrag aus dem Zustand des vergangenen Tages
+  const eintrag = makeLogEntry({
+    fire: !!fireMesh,
+    shelter: shelterNear,
+    fireOut: !!S.fireOutToday
+  });
+  if (!Array.isArray(S.log)) S.log = [];
+  S.log.push(eintrag);
+  if (S.log.length > 24) S.log.shift();
+  S.snakeToday = false; S.fireOutToday = false;
   saveGame();
+  showLogbook(eintrag, function(){
+    meldungen.forEach(function(m, i){ setTimeout(function(){ toast(m[0], m[1]); }, i*450); });
+  });
 }
 
 // Aktionsbuttons — pointerdown statt click (reagiert sofort, kein Doppeltipp nötig)
@@ -2146,7 +2328,8 @@ function confirmGhost(){
     const f=shadowify(mkFire()); f.position.copy(pos); scene.add(f); fires.push(f);
     const fe={x:pos.x,z:pos.z,fuel:FIRE_START}; f.userData.fs=fe; S.fires.push(fe);
     sfx("fire_lit");
-    toast("🔥 Lagerfeuer entzündet — Holz für " + FIRE_START + " Stunden. Leg rechtzeitig nach!", 4500);
+    toast("🔥 Lagerfeuer entzündet — brennt " + FIRE_START
+          + " Stunden. 1 Scheit = " + HOURS_PER_WOOD + " Stunden.", 4500);
   } else {
     const sh=shadowify(mkShelter()); sh.position.copy(pos); scene.add(sh); shelters.push(sh);
     S.shelters.push({x:sh.position.x,z:sh.position.z}); sfx("craft"); toast("⛺ Unterschlupf gebaut!");
@@ -2490,18 +2673,19 @@ function update(dt){
     const f = fires[fi], fs = f.userData.fs;
     if (fs){
       fs.fuel -= burn;
-      if (fs.fuel > 1.6) fs.warned = false;
+      if (fs.fuel > 5) fs.warned = false;
       else if (!fs.warned && fs.fuel > 0){ fs.warned = true;
         toast("🔥 Das Feuer brennt nieder — leg Holz nach!", 3800); }
       if (fs.fuel <= 0){
         scene.remove(f); fires.splice(fi, 1);
         const k = S.fires.indexOf(fs); if (k >= 0) S.fires.splice(k, 1);
+        S.fireOutToday = true;
         toast("🔥 Das Feuer ist erloschen."); saveGame();
         continue;
       }
     }
     // Flamme und Lichtkegel schrumpfen mit dem Brennstoff
-    const lo = fs ? Math.max(0.45, Math.min(1, fs.fuel / 4)) : 1;
+    const lo = fs ? Math.max(0.45, Math.min(1, fs.fuel / 8)) : 1;
     if (f.userData.flame){ const s = (0.85 + Math.sin(performance.now()*0.012 + f.position.x)*0.15) * lo;
       f.userData.flame.scale.set(s, s, s); }
     if (f.userData.light) f.userData.light.intensity = (1.0 + Math.sin(performance.now()*0.02)*0.18) * lo;
@@ -2577,7 +2761,7 @@ function update(dt){
     rainFillT += dt;
     if (rainFillT > 15){
       rainFillT = 0; if (S.bottle === 0) S.bottleClean = true; S.bottle++;
-      sfx("drink"); sfx("drink"); toast(`🍼 Der Regen füllt deine Flasche (${S.bottle}/3) — sauberes Wasser.`);
+      sfx("drink"); sfx("drink"); toast(`🧴 Der Regen füllt deinen Kanister (${S.bottle}/3) — sauberes Wasser.`);
     }
   } else rainFillT = 0;
 
@@ -2614,7 +2798,7 @@ function update(dt){
     S.snakeCD = Math.max(0, S.snakeCD - dt);
     if (djP < JUNGLE.r && S.snakeCD <= 0 && moving && Math.random() < 0.004){
       S.poison = Math.max(S.poison||0, 2 + Math.random()*1.5);
-      S.snakeCD = 200;
+      S.snakeCD = 200; S.snakeToday = true;
       toast("🐍 Eine Giftschlange! Du wirst gebissen — deine Gesundheit sinkt!", 4500);
       sfx("danger");
     }
@@ -2730,6 +2914,7 @@ function startGame(state){
   if (typeof S.driftN !== "number") S.driftN = 0;
   if (typeof S.shipCD !== "number") S.shipCD = 95;
   if (typeof S.bottleClean !== "boolean") S.bottleClean = false;
+  if (!Array.isArray(S.log)) S.log = [];
   applySkin();
   if (typeof S.poison !== "number") S.poison = 0;
   if (typeof S.snakeCD !== "number") S.snakeCD = 60;
@@ -2990,6 +3175,8 @@ $("btnRetry").onclick = () => { startGame(freshState()); showJoy(); };
 var _bce=$("btnCaveExit");
 if(_bce) _bce.onclick=()=>{ exitCaveMode(); toast("Du verlässt die Höhle.",2500); };
 $("btnWinNew").onclick = () => { startGame(freshState()); showJoy(); };
+var _blg=$("btnLogGo");  if(_blg) _blg.onclick = showLogAll;
+var _blw=$("btnLogWin"); if(_blw) _blw.onclick = showLogAll;
 $("btnContinue").onclick = () => { const s = loadGame(); startGame(s || freshState()); showJoy(); };
 (function initStart(){
   if (loadGame()) $("btnContinue").style.display = "inline-block";
@@ -3011,7 +3198,7 @@ document.addEventListener("visibilitychange", () => { if (document.hidden && S) 
 
 // ---------- Resize ----------
 function posJoyDefault(){
-  var x=Math.round(window.innerWidth*.22),y=Math.round(window.innerHeight*.80);
+  var x=Math.round(window.innerWidth*.22),y=Math.round(window.innerHeight*.87);
   var jb=$("joyBase"),jh=$("joyHint");
   if(jb){jb.style.left=(x-52)+"px"; jb.style.top=(y-52)+"px";}
   if(jh){jh.style.left=x+"px"; jh.style.top=y+"px";}
